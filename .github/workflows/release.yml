@@ -41,8 +41,10 @@ jobs:
       - name: Archive
         shell: pwsh
         run: |
-          Remove-Item -Path ffxiv_visland/bin/x64/Release/visland/latest.zip -ErrorAction SilentlyContinue
-          Compress-Archive -Path ffxiv_visland/bin/x64/Release/visland/* -DestinationPath visland.zip
+          # DalamudPackager already produces a flat, correctly-structured zip at
+          # latest.zip (dll/deps/json at the root) - use it as-is instead of
+          # re-zipping the output folder (which would nest it and lose the DLL).
+          Copy-Item -Path ffxiv_visland/bin/x64/Release/visland/latest.zip -Destination visland.zip
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
