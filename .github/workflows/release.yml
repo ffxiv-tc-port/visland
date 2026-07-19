@@ -39,7 +39,10 @@ jobs:
           $json.AssemblyVersion = "${{ env.VER }}"
           $json | ConvertTo-Json | Set-Content -Path $path
       - name: Archive
-        run: Compress-Archive -Path ffxiv_visland/bin/x64/Release/visland/* -DestinationPath visland.zip
+        shell: pwsh
+        run: |
+          Remove-Item -Path ffxiv_visland/bin/x64/Release/visland/latest.zip -ErrorAction SilentlyContinue
+          Compress-Archive -Path ffxiv_visland/bin/x64/Release/visland/* -DestinationPath visland.zip
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
