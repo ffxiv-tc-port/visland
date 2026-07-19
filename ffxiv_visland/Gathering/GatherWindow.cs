@@ -35,9 +35,9 @@ public class GatherWindow : Window {
     private string searchString = string.Empty;
     private readonly List<Route> FilteredRoutes = [];
     private FontAwesomeIcon PlayIcon => Exec.CurrentRoute != null && !Exec.Paused ? FontAwesomeIcon.Pause : FontAwesomeIcon.Play;
-    private string PlayTooltip => Exec.CurrentRoute == null ? "Start Route" : Exec.Paused ? "Resume Route" : "Pause Route";
+    private string PlayTooltip => Exec.CurrentRoute == null ? "開始路線" : Exec.Paused ? "繼續路線" : "暫停路線";
 
-    public GatherWindow() : base("Gathering Automation", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse) {
+    public GatherWindow() : base("採集自動化", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse) {
         Size = new Vector2(800, 800);
         SizeCondition = ImGuiCond.FirstUseEver;
         RouteDB = Service.Config.Get<GatherRouteDB>();
