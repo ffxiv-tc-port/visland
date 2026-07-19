@@ -2,6 +2,7 @@
 using FFXIVClientStructs.FFXIV.Client.UI;
 using Lumina.Excel.Sheets;
 using System;
+using visland.Helpers;
 
 namespace visland.Helpers;
 
@@ -40,7 +41,11 @@ internal unsafe class RepairAssistantManager {
     internal static bool ProcessRepair() {
         Service.TaskManager.Enqueue(UseRepair);
         Service.TaskManager.Enqueue(RepairWindowOpen);
-        Service.TaskManager.Enqueue(() => RepairManager.Instance()->RepairEquipped(false));
+        Service.TaskManager.Enqueue(() => {
+            if (AddonUtils.TryGetAddonByName<AddonRepair>("Repair", out var repairAddon))
+                AddonUtils.ClickButton(repairAddon->RepairAllButton);
+            return true;
+        });
         Service.TaskManager.Enqueue(() => !CanRepairAny());
         Service.TaskManager.Enqueue(UseRepair);
         return true;

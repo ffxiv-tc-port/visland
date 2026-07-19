@@ -1,6 +1,6 @@
 ﻿using Dalamud.Interface.Windowing;
 using FFXIVClientStructs.FFXIV.Component.GUI;
-using Dalamud.Bindings.ImGui;
+using ImGuiNET;
 using System;
 using System.Numerics;
 
@@ -23,7 +23,7 @@ public abstract class UIAttachedWindow : Window, IDisposable {
     public virtual void Dispose() { }
 
     public override unsafe void PreOpenCheck() {
-        var addon = (AtkUnitBase*)Service.GameGui.GetAddonByName(_addon).Address;
+        var addon = (AtkUnitBase*)Service.GameGui.GetAddonByName(_addon);
         IsOpen = addon != null && addon->IsVisible;
         if (IsOpen) {
             Position = new Vector2(addon->X + addon->GetScaledWidth(true), addon->Y);

@@ -1,0 +1,12 @@
+{
+    "Author": "veyn, croizat, Lother",
+    "Name": "Visland",
+    "InternalName": "visland",
+    "Description": "自動化採集、工房分配等島嶼度假村相關作業。",
+    "ApplicableVersion": "any",
+    "Punchline": "自動化島嶼度假村各項活動",
+    "RepoUrl": "https://github.com/Lother/visland",
+    "AcceptsFeedback": false,
+    "IconUrl": "https://raw.githubusercontent.com/Lother/DalamudPluginsTC/main/icons/visland.png",
+    "DalamudApiLevel": 12
+}

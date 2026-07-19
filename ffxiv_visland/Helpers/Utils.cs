@@ -6,7 +6,7 @@ using FFXIVClientStructs.FFXIV.Client.System.Framework;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using FFXIVClientStructs.Interop;
-using Dalamud.Bindings.ImGui;
+using ImGuiNET;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -58,7 +58,7 @@ public static unsafe class Utils {
         const uint iconID = 60073;
         var texture = Service.TextureProvider.GetFromGameIcon(iconID).GetWrapOrEmpty();
         if (texture != null)
-            ImGui.Image(texture.Handle, size);
+            ImGui.Image(texture.ImGuiHandle, size);
         else
             ImGui.Dummy(size);
         if (ImGui.IsItemHovered())

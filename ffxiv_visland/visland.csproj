@@ -1,17 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+<Project Sdk="Dalamud.NET.Sdk/12.0.2">
 	<PropertyGroup>
-		<Version>0.0.0.0</Version>
+		<BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</BuildNumberFile>
+		<_PreviousBuildNumber Condition="Exists('$(BuildNumberFile)')">$([System.IO.File]::ReadAllText('$(BuildNumberFile)').Trim())</_PreviousBuildNumber>
+		<_PreviousBuildNumber Condition="'$(_PreviousBuildNumber)' == ''">0</_PreviousBuildNumber>
+		<BuildNumber>$([MSBuild]::Add($(_PreviousBuildNumber), 1))</BuildNumber>
+		<VersionPrefix>7.15.0</VersionPrefix>
+		<Version>$(VersionPrefix).$(BuildNumber)</Version>
+		<AssemblyVersion>$(Version)</AssemblyVersion>
+		<FileVersion>$(Version)</FileVersion>
 		<LangVersion>preview</LangVersion>
 
-		<Author>veyn, croizat</Author>
+		<Author>veyn, croizat, Lother</Author>
 		<Name>Visland</Name>
 		<InternalName>visland</InternalName>
-		<Punchline>Automate island sanctuary activities</Punchline>
-		<Description>Automate gathering, workshop assignments, etc.</Description>
-		<RepoUrl>https://github.com/awgil/ffxiv_visland</RepoUrl>
-		<IconUrl>https://raw.githubusercontent.com/awgil/ffxiv_visland/d3338f6ddbf54365e60fbdf8e85ea8f5abdb745f/icon.png</IconUrl>
+		<Punchline>自動化島嶼度假村各項活動</Punchline>
+		<Description>自動化採集、工房分配等島嶼度假村相關作業。</Description>
+		<RepoUrl>https://github.com/Lother/visland</RepoUrl>
+		<IconUrl>https://raw.githubusercontent.com/Lother/DalamudPluginsTC/main/icons/visland.png</IconUrl>
 	</PropertyGroup>
+
+	<Target Name="PersistBuildNumber" AfterTargets="Build">
+		<WriteLinesToFile File="$(BuildNumberFile)" Lines="$(BuildNumber)" Overwrite="true" />
+	</Target>
 
 	<PropertyGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))'">
 		<DalamudLibPath>$(DALAMUD_HOME)/</DalamudLibPath>

@@ -29,7 +29,7 @@ public static unsafe class WorkshopUtils {
 
     public static void ClearCurrentCycleSchedule() {
         Service.Log.Info($"Clearing current cycle schedule");
-        Utils.SynthesizeEvent(&AgentMJICraftSchedule.Instance()->AgentInterface, 6, [new() { Type = AtkValueType.Int, Int = 0 }]);
+        Utils.SynthesizeEvent(&AgentMJICraftSchedule.Instance()->AgentInterface, 6, [new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = 0 }]);
     }
 
     public static void ScheduleItemToWorkshop(uint objId, int startingHour, int cycle, int workshop) {
@@ -54,7 +54,7 @@ public static unsafe class WorkshopUtils {
         Service.Log.Info($"Setting rest: {mask:X}");
         var agent = AgentMJICraftSchedule.Instance();
         agent->Data->NewRestCycles = mask;
-        Utils.SynthesizeEvent(&agent->AgentInterface, 5, [new() { Type = AtkValueType.Int, Int = 0 }]);
+        Utils.SynthesizeEvent(&agent->AgentInterface, 5, [new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = 0 }]);
     }
 
     public static bool VoidSecondRestThisWeek() {

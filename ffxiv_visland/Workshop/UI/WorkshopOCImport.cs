@@ -2,7 +2,7 @@ using Dalamud.Game;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.Textures;
 using Dalamud.Interface.Utility.Raii;
-using Dalamud.Bindings.ImGui;
+using ImGuiNET;
 using Lumina.Excel;
 using Lumina.Excel.Sheets;
 using System;
@@ -219,7 +219,7 @@ public unsafe class WorkshopOCImport {
                             var iconSize = ImGui.GetTextLineHeight() * 1.5f;
                             var iconSizeVec = new Vector2(iconSize, iconSize);
                             var craftworkItemIcon = _craftSheet.GetRow(rec.CraftObjectId)!.Item.Value!.Icon;
-                            ImGui.Image(Service.TextureProvider.GetFromGameIcon(new GameIconLookup(craftworkItemIcon)).GetWrapOrEmpty().Handle, iconSizeVec, Vector2.Zero, Vector2.One);
+                            ImGui.Image(Service.TextureProvider.GetFromGameIcon(new GameIconLookup(craftworkItemIcon)).GetWrapOrEmpty().ImGuiHandle, iconSizeVec, Vector2.Zero, Vector2.One);
 
                             ImGui.TableNextColumn();
                             ImGui.TextUnformatted(_botNames[(int)rec.CraftObjectId]);

@@ -1,7 +1,7 @@
 ﻿using Dalamud.Interface.Utility.Raii;
 using FFXIVClientStructs.FFXIV.Client.Game.MJI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
-using Dalamud.Bindings.ImGui;
+using ImGuiNET;
 using Lumina.Excel.Sheets;
 using visland.Helpers;
 
