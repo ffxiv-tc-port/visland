@@ -10,7 +10,7 @@ unsafe class PastureWindow : UIAttachedWindow {
     private readonly PastureConfig _config;
     private readonly PastureDebug _debug = new();
 
-    public PastureWindow() : base("牧場自動化", "MJIAnimalManagement", new(400, 600)) {
+    public PastureWindow() : base("Pasture Automation".Loc(), "MJIAnimalManagement", new(400, 600)) {
         _config = Service.Config.Get<PastureConfig>();
     }
 

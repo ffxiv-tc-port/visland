@@ -14,7 +14,7 @@ unsafe class ExportWindow : UIAttachedWindow {
     private readonly ExportDebug _debug = new();
     private readonly Throttle _exportThrottle = new(); // export seems to close & reopen window?..
 
-    public ExportWindow() : base("出口自動化", "MJIDisposeShop", new(400, 600)) {
+    public ExportWindow() : base("Exports Automation".Loc(), "MJIDisposeShop", new(400, 600)) {
         _config = Service.Config.Get<ExportConfig>();
     }
 

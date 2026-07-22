@@ -11,7 +11,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
     private readonly GranaryConfig _config;
     private readonly GranaryDebug _debug;
 
-    public GranaryWindow() : base("屯貨倉庫自動化", "MJIGatheringHouse", new(400, 600)) {
+    public GranaryWindow() : base("Granary Automation".Loc(), "MJIGatheringHouse", new(400, 600)) {
         _config = Service.Config.Get<GranaryConfig>();
         _debug = new();
     }
