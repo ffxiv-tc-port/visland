@@ -11,7 +11,7 @@ public unsafe class FarmWindow : UIAttachedWindow {
     private readonly FarmConfig _config;
     private readonly FarmDebug _debug = new();
 
-    public FarmWindow() : base("農場自動化", "MJIFarmManagement", new(400, 600)) {
+    public FarmWindow() : base("耕地自動化", "MJIFarmManagement", new(400, 600)) {
         _config = Service.Config.Get<FarmConfig>();
     }
 

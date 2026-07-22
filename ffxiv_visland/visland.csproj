@@ -14,8 +14,8 @@
 		<Author>veyn, croizat, Lother</Author>
 		<Name>Visland</Name>
 		<InternalName>visland</InternalName>
-		<Punchline>自動化島嶼度假村各項活動</Punchline>
-		<Description>自動化採集、工房分配等島嶼度假村相關作業。</Description>
+		<Punchline>自動化無人島各項活動</Punchline>
+		<Description>自動化採集、開拓工坊排班等無人島相關作業。</Description>
 		<RepoUrl>https://github.com/Lother/visland</RepoUrl>
 		<IconUrl>https://raw.githubusercontent.com/Lother/DalamudPluginsTC/main/icons/visland.png</IconUrl>
 	</PropertyGroup>

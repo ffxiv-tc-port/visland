@@ -11,7 +11,7 @@ unsafe class WorkshopWindow : UIAttachedWindow {
     private readonly WorkshopOCImport _oc = new();
     private readonly WorkshopDebug _debug = new();
 
-    public WorkshopWindow() : base("工房自動化", "MJICraftSchedule", new(500, 650)) {
+    public WorkshopWindow() : base("開拓工坊自動化", "MJICraftSchedule", new(500, 650)) {
         _config = Service.Config.Get<WorkshopConfig>();
     }
 
