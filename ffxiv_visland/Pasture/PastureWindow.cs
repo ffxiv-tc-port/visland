@@ -32,7 +32,7 @@ unsafe class PastureWindow : UIAttachedWindow {
     public override void Draw() {
         using var tabs = ImRaii.TabBar("Tabs");
         if (tabs) {
-            using (var tab = ImRaii.TabItem("Main"))
+            using (var tab = ImRaii.TabItem("Main".Loc()))
                 if (tab)
                     DrawMain();
             using (var tab = ImRaii.TabItem("Debug"))
@@ -42,14 +42,14 @@ unsafe class PastureWindow : UIAttachedWindow {
     }
 
     private void DrawMain() {
-        if (UICombo.Enum("Auto Collect", ref _config.Collect))
+        if (UICombo.Enum("Auto Collect".Loc(), ref _config.Collect))
             _config.NotifyModified();
         ImGui.Separator();
 
         var mji = MJIManager.Instance();
         var agent = AgentMJIAnimalManagement.Instance();
         if (mji == null || mji->PastureHandler == null || mji->IslandState.Pasture.EligibleForCare == 0 || agent == null) {
-            ImGui.TextUnformatted("Mammets not available!");
+            ImGui.TextUnformatted("Mammets not available!".Loc());
             return;
         }
 
@@ -61,18 +61,18 @@ unsafe class PastureWindow : UIAttachedWindow {
         if (res != CollectResult.NothingToCollect) {
             // if there's uncollected stuff - propose to collect everything
             using (ImRaii.Disabled(res == CollectResult.EverythingCapped)) {
-                if (ImGui.Button("Collect all"))
+                if (ImGui.Button("Collect all".Loc()))
                     CollectAll();
                 if (res != CollectResult.CanCollectSafely) {
                     ImGui.SameLine();
                     using (ImRaii.PushColor(ImGuiCol.Text, 0xff0000ff))
-                        ImGui.TextV(res == CollectResult.EverythingCapped ? "Inventory is full!" : "Warning: some resources will overcap!");
+                        ImGui.TextV(res == CollectResult.EverythingCapped ? "Inventory is full!".Loc() : "Warning: some resources will overcap!".Loc());
                 }
             }
         }
         else {
             // TODO: think about any other global operations?
-            ImGui.TextV("Nothing to collect!");
+            ImGui.TextV("Nothing to collect!".Loc());
         }
     }
 

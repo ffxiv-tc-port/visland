@@ -35,4 +35,8 @@
 	<ItemGroup>
 		<EmbeddedResource Include="Workshop\Data\workshop-seasons.json" LogicalName="visland.Workshop.Data.workshop-seasons.json" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="LanguageChineseTraditional.ini" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
 </Project>

@@ -40,6 +40,7 @@ public sealed class Plugin : IDalamudPlugin {
             dir.Create();
 
         Service.Init(dalamud);
+        Localization.Init(dalamud.AssemblyLocation.DirectoryName);
 
         P = this;
         _windowSystem.Add(new GatherWindow(), new WorkshopWindow(), new GranaryWindow(), new PastureWindow(), new FarmWindow(), new ExportWindow());

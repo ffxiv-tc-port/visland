@@ -25,7 +25,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
     public override void Draw() {
         using var tabs = ImRaii.TabBar("Tabs");
         if (tabs) {
-            using (var tab = ImRaii.TabItem("Main"))
+            using (var tab = ImRaii.TabItem("Main".Loc()))
                 if (tab)
                     DrawMain();
             using (var tab = ImRaii.TabItem("Debug"))
@@ -47,11 +47,11 @@ unsafe class GranaryWindow : UIAttachedWindow {
     }
 
     private unsafe void DrawMain() {
-        if (UICombo.Enum("Auto Collect", ref _config.Collect))
+        if (UICombo.Enum("Auto Collect".Loc(), ref _config.Collect))
             _config.NotifyModified();
-        if (UICombo.Enum("Auto Reassign", ref _config.Reassign))
+        if (UICombo.Enum("Auto Reassign".Loc(), ref _config.Reassign))
             _config.NotifyModified();
-        if (ImGui.Button("Apply!"))
+        if (ImGui.Button("Apply!".Loc()))
             ForceReassign();
 
         ImGui.Separator();
@@ -63,9 +63,9 @@ unsafe class GranaryWindow : UIAttachedWindow {
 
         using var table = ImRaii.Table("table", 3);
         if (table) {
-            ImGui.TableSetupColumn("Expedition");
-            ImGui.TableSetupColumn("Granary 1", ImGuiTableColumnFlags.WidthFixed, 100);
-            ImGui.TableSetupColumn("Granary 2", ImGuiTableColumnFlags.WidthFixed, 100);
+            ImGui.TableSetupColumn("Expedition".Loc());
+            ImGui.TableSetupColumn("Granary 1".Loc(), ImGuiTableColumnFlags.WidthFixed, 100);
+            ImGui.TableSetupColumn("Granary 2".Loc(), ImGuiTableColumnFlags.WidthFixed, 100);
             ImGui.TableHeadersRow();
 
             ImGui.TableNextRow();
@@ -73,7 +73,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
             for (var i = 0; i < 2; ++i) {
                 ImGui.TableNextColumn();
                 using (ImRaii.Disabled(collectStates[i] is CollectResult.NothingToCollect or CollectResult.EverythingCapped))
-                    if (ImGui.Button($"Collect##{i}"))
+                    if (ImGui.Button("Collect".Loc() + $"##{i}"))
                         GranaryUtils.Collect(i);
             }
 
@@ -93,7 +93,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
                     var curDays = GranaryUtils.GetGranaryState(i)->RemainingDays;
                     var maxDays = (byte)Math.Min(7, curDays + GranaryUtils.MaxDays());
                     using (ImRaii.Disabled(collectStates[i] != CollectResult.NothingToCollect || curDest == e->ExpeditionId && curDays == maxDays))
-                        if (ImGui.Button($"{(curDest == e->ExpeditionId ? "Max" : "Reassign")}##{i}_{e->ExpeditionId}"))
+                        if (ImGui.Button((curDest == e->ExpeditionId ? "Max" : "Reassign").Loc() + $"##{i}_{e->ExpeditionId}"))
                             GranaryUtils.SelectExpedition((byte)i, e->ExpeditionId, maxDays);
                 }
             }
