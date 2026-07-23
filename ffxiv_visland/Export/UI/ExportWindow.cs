@@ -82,8 +82,8 @@ unsafe class ExportWindow : UIAttachedWindow {
         var data = agent->Data;
         List<AtkValue> args =
         [
-            new() { Type = AtkValueType.UInt },
-            new() { Type = AtkValueType.UInt, Int = limit }
+            new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt },
+            new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt, Int = limit }
         ];
         var numItems = 0;
         foreach (var item in data->PerCategoryItems[category].AsSpan()) {
@@ -104,8 +104,8 @@ unsafe class ExportWindow : UIAttachedWindow {
                     throw new Exception("Seafarer cowries would overcap".Loc());
             }
 
-            args.Add(new() { Type = AtkValueType.UInt, UInt = item.Value->ShopItemRowId });
-            args.Add(new() { Type = AtkValueType.UInt, Int = export });
+            args.Add(new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt, UInt = item.Value->ShopItemRowId });
+            args.Add(new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt, Int = export });
             if (++numItems > 64)
                 throw new Exception("Too many items to export, please report this as a bug!".Loc());
         }

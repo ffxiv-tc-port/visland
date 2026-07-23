@@ -1,4 +1,4 @@
-using Dalamud.Game.ClientState.Conditions;
+﻿using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace visland.Helpers;
@@ -24,6 +24,16 @@ public static unsafe class AddonUtils {
         Service.Condition[ConditionFlag.ExecutingGatheringAction];
 
     public static bool IsAddonReady(AtkUnitBase* addon) => addon != null && addon->IsVisible && addon->IsReady;
+
+    // TC/old-API-gen note: FFXIVClientStructs on this client doesn't have a RepairManager type; simulate a
+    // real click on an AtkComponentButton by synthesizing a ButtonClick event through its own vtable instead.
+    public static void ClickButton(AtkComponentButton* button) {
+        if (button == null) return;
+        var vtbl = (AtkComponentButton.AtkComponentButtonVirtualTable*)button->AtkComponentBase.VirtualTable;
+        AtkEvent evt = default;
+        AtkEventData data = default;
+        vtbl->ReceiveEvent(button, AtkEventType.ButtonClick, 0, &evt, &data);
+    }
 }
 
 public static unsafe class AtkCallback {
@@ -41,7 +51,7 @@ public static unsafe class AtkCallback {
 
         var atkValues = stackalloc AtkValue[values.Length];
         for (var i = 0; i < values.Length; ++i) {
-            atkValues[i].Type = AtkValueType.Int;
+            atkValues[i].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int;
             atkValues[i].Int = values[i];
         }
 
