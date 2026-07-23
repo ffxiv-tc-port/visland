@@ -1,6 +1,4 @@
-﻿using Dalamud.Game.ClientState.Objects;
-using Dalamud.Game;
-using Dalamud.IoC;
+﻿using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using System;
@@ -29,6 +27,7 @@ public class Service {
     [PluginService] public static IFramework Framework { get; private set; } = null!;
     [PluginService] public static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] public static IAetheryteList AetheryteList { get; private set; } = null!;
+    [PluginService] public static IPlayerState PlayerState { get; private set; } = null!;
 
     public static Configuration Config { get; private set; } = null!;
     public static Retainers Retainers { get; private set; } = null!;

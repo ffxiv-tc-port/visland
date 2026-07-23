@@ -145,7 +145,7 @@ public class GatherRouteExec : IDisposable {
         if (wp.IsPhantom && wp.InteractWithOID == 0) {
             var obj = Service.ObjectTable.FirstOrDefault(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable && o?.Position.X - CurrentRoute.Waypoints[CurrentWaypoint].InteractWithPosition.X < 5 && o?.Position.Z - CurrentRoute.Waypoints[CurrentWaypoint].InteractWithPosition.Z < 5, null);
             if (obj != null) {
-                wp.InteractWithOID = obj.DataId;
+                wp.InteractWithOID = obj.BaseId;
                 wp.InteractWithName = obj.Name.TextValue;
                 wp.InteractWithPosition = obj.Position;
             }
@@ -186,7 +186,7 @@ public class GatherRouteExec : IDisposable {
 
         if (needToGetCloser) {
             // skip current waypoint if target isn't there
-            if (wp.IsNode && Player.DistanceTo(wp.Position) < 50 && !Service.ObjectTable.Any(x => x.DataId == wp.InteractWithOID && x.IsTargetable)) {
+            if (wp.IsNode && Player.DistanceTo(wp.Position) < 50 && !Service.ObjectTable.Any(x => x.BaseId == wp.InteractWithOID && x.IsTargetable)) {
                 Service.Log.Debug("Current waypoint target is not targetable, moving to next waypoint");
                 if (Service.Navmesh.IsRunning())
                     Service.Navmesh.Stop();
@@ -263,7 +263,7 @@ public class GatherRouteExec : IDisposable {
                 }
                 break;
             case GatherRouteDB.InteractionType.NodeScan:
-                var objs = Service.ObjectTable.Where(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable).OrderBy(x => x.DataId);
+                var objs = Service.ObjectTable.Where(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable).OrderBy(x => x.BaseId);
                 if (objs.Any()) {
                     Service.Log.Debug($"Found {objs.Count()} GatheringPoints");
                     TryAddObjects(wp, objs);
@@ -327,7 +327,7 @@ public class GatherRouteExec : IDisposable {
 
         if (wp.IsPhantom && wp.IsLast(CurrentRoute)) // phantom nodes should have two interactions: standard and nodescan. Ideally find a better way than just duplicating the function here
         {
-            var objs = Service.ObjectTable.Where(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable).OrderBy(x => x.DataId);
+            var objs = Service.ObjectTable.Where(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable).OrderBy(x => x.BaseId);
             if (objs.Any()) {
                 Service.Log.Debug($"Found {objs.Count()} GatheringPoints");
                 TryAddObjects(wp, objs);
@@ -373,7 +373,7 @@ public class GatherRouteExec : IDisposable {
         if (wp.InteractWithOID == 0)
             return null;
 
-        foreach (var obj in Service.ObjectTable.Where(o => o.DataId == wp.InteractWithOID && (o.Position - wp.Position).LengthSquared() < 1))
+        foreach (var obj in Service.ObjectTable.Where(o => o.BaseId == wp.InteractWithOID && (o.Position - wp.Position).LengthSquared() < 1))
             return obj.IsTargetable ? (GameObject*)obj.Address : null;
         return null;
     }
@@ -386,7 +386,7 @@ public class GatherRouteExec : IDisposable {
             ZoneID = Service.ClientState.TerritoryType,
             Radius = RouteDB.DefaultWaypointRadius,
             InteractWithName = obj.Name.TextValue,
-            InteractWithOID = obj.DataId,
+            InteractWithOID = obj.BaseId,
             InteractWithPosition = obj.Position,
             Interaction = GatherRouteDB.InteractionType.Standard,
             Movement = Player.InclusiveFlying ? GatherRouteDB.Movement.MountFly : GatherRouteDB.Movement.Normal
@@ -404,7 +404,7 @@ public class GatherRouteExec : IDisposable {
             ZoneID = Service.ClientState.TerritoryType,
             Radius = RouteDB.DefaultWaypointRadius,
             InteractWithName = marker.Node?.Name.TextValue ?? "",
-            InteractWithOID = marker.Node?.DataId ?? 0,
+            InteractWithOID = marker.Node?.BaseId ?? 0,
             InteractWithPosition = marker.Node?.Position ?? marker.Position,
             Interaction = GatherRouteDB.InteractionType.Standard,
             Movement = Service.Condition[ConditionFlag.Diving] || marker.DistanceToLast > 30 ? GatherRouteDB.Movement.MountFly : GatherRouteDB.Movement.Normal
@@ -421,7 +421,7 @@ public class GatherRouteExec : IDisposable {
                 var pos = new Vector3(marker.MapMarker.X / 16, Player.Position.Y, marker.MapMarker.Y / 16);
                 var dist = index > 0 ? Vector3.Distance(Service.ObjectTable.ElementAt(index - 1).Position, pos) : 0;
                 var obj = Service.ObjectTable.FirstOrDefault(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable && o?.Position.X - CurrentRoute!.Waypoints[CurrentWaypoint].InteractWithPosition.X < 5 && o?.Position.Z - CurrentRoute.Waypoints[CurrentWaypoint].InteractWithPosition.Z < 5, null);
-                Service.Log.Debug($"Found {nameof(MiniMapGatheringMarker)} @ {pos} {(obj != null ? $"and matching object [{obj.DataId}] {obj.Name.TextValue} @ {obj.Position}" : string.Empty)}");
+                Service.Log.Debug($"Found {nameof(MiniMapGatheringMarker)} @ {pos} {(obj != null ? $"and matching object [{obj.BaseId}] {obj.Name.TextValue} @ {obj.Position}" : string.Empty)}");
                 return (Marker: marker, Position: obj != null ? obj.Position : pos, DistanceToLast: dist, Node: obj);
             })];
     #endregion

@@ -31,9 +31,9 @@ public static unsafe partial class GatheringAddon {
             if (checkbox == null || !checkbox->IsEnabled)
                 return;
             var values = stackalloc AtkValue[2];
-            values[0].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int;
+            values[0].Type = AtkValueType.Int;
             values[0].Int = 2;
-            values[1].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt;
+            values[1].Type = AtkValueType.UInt;
             values[1].UInt = (uint)index;
             ((AtkUnitBase*)_addon)->FireCallback(1, values);
         }

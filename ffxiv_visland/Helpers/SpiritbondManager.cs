@@ -101,17 +101,17 @@ public static unsafe class SpiritbondManager {
                     if (materializePTR == IntPtr.Zero)
                         return;
 
-                    var materalizeWindow = (AtkUnitBase*)materializePTR;
+                    var materalizeWindow = (AtkUnitBase*)materializePTR.Address;
                     if (materalizeWindow == null)
                         return;
 
                     var values = stackalloc AtkValue[2];
                     values[0] = new() {
-                        Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int,
+                        Type = AtkValueType.Int,
                         Int = 2,
                     };
                     values[1] = new() {
-                        Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt,
+                        Type = AtkValueType.UInt,
                         UInt = 0,
                     };
 
