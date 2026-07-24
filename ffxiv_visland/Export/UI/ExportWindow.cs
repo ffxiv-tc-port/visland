@@ -46,13 +46,17 @@ unsafe class ExportWindow : UIAttachedWindow {
         if (ImGui.Checkbox("Auto Export".Loc(), ref _config.AutoSell))
             _config.NotifyModified();
         ImGui.PushItemWidth(150);
-        if (ImGui.SliderInt("Sell normal above".Loc(), ref _config.NormalLimit, 0, 999))
+        ImGui.SliderInt("Sell normal above".Loc(), ref _config.NormalLimit, 0, 999);
+        if (ImGui.IsItemDeactivatedAfterEdit())
             _config.NotifyModified();
-        if (ImGui.SliderInt("Sell granary above".Loc(), ref _config.GranaryLimit, 0, 999))
+        ImGui.SliderInt("Sell granary above".Loc(), ref _config.GranaryLimit, 0, 999);
+        if (ImGui.IsItemDeactivatedAfterEdit())
             _config.NotifyModified();
-        if (ImGui.SliderInt("Sell farm above".Loc(), ref _config.FarmLimit, 0, 999))
+        ImGui.SliderInt("Sell farm above".Loc(), ref _config.FarmLimit, 0, 999);
+        if (ImGui.IsItemDeactivatedAfterEdit())
             _config.NotifyModified();
-        if (ImGui.SliderInt("Sell pasture above".Loc(), ref _config.PastureLimit, 0, 999))
+        ImGui.SliderInt("Sell pasture above".Loc(), ref _config.PastureLimit, 0, 999);
+        if (ImGui.IsItemDeactivatedAfterEdit())
             _config.NotifyModified();
         ImGui.PopItemWidth();
 

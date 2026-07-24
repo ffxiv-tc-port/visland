@@ -189,9 +189,11 @@ public class GatherWindow : Window {
         using var popup = ImRaii.Popup("Advanced Options");
         if (popup.Success) {
             Utils.DrawSection("Global Route Editing Options".Loc(), ImGuiColors.ParsedGold);
-            if (ImGui.SliderFloat("Default Waypoint Radius".Loc(), ref RouteDB.DefaultWaypointRadius, 0, 100))
+            ImGui.SliderFloat("Default Waypoint Radius".Loc(), ref RouteDB.DefaultWaypointRadius, 0, 100);
+            if (ImGui.IsItemDeactivatedAfterEdit())
                 RouteDB.NotifyModified();
-            if (ImGui.SliderFloat("Default Interaction Radius".Loc(), ref RouteDB.DefaultInteractionRadius, 0, 100))
+            ImGui.SliderFloat("Default Interaction Radius".Loc(), ref RouteDB.DefaultInteractionRadius, 0, 100);
+            if (ImGui.IsItemDeactivatedAfterEdit())
                 RouteDB.NotifyModified();
 
             Utils.DrawSection("Global Route Operation Options".Loc(), ImGuiColors.ParsedGold);
@@ -221,7 +223,8 @@ public class GatherWindow : Window {
                 RouteDB.NotifyModified();
             if (ImGui.Checkbox("Repair gear during routes".Loc(), ref RouteDB.RepairGear))
                 RouteDB.NotifyModified();
-            if (ImGui.SliderFloat("Repair percentage threshold".Loc(), ref RouteDB.RepairPercent, 0, 100))
+            ImGui.SliderFloat("Repair percentage threshold".Loc(), ref RouteDB.RepairPercent, 0, 100);
+            if (ImGui.IsItemDeactivatedAfterEdit())
                 RouteDB.NotifyModified();
             if (ImGui.Checkbox("Purify collectables during routes".Loc(), ref RouteDB.PurifyCollectables))
                 RouteDB.NotifyModified();
@@ -495,7 +498,8 @@ public class GatherWindow : Window {
         if (wp.showWaits) {
             if (ImGui.InputFloat2("Eorzean Time Wait".Loc(), ref wp.WaitTimeET))
                 RouteDB.NotifyModified();
-            if (ImGui.SliderInt("Wait (ms)".Loc(), ref wp.WaitTimeMs, 0, 60000))
+            ImGui.SliderInt("Wait (ms)".Loc(), ref wp.WaitTimeMs, 0, 60000);
+            if (ImGui.IsItemDeactivatedAfterEdit())
                 RouteDB.NotifyModified();
             if (UICombo.Enum("Wait for Condition".Loc(), ref wp.WaitForCondition))
                 RouteDB.NotifyModified();
