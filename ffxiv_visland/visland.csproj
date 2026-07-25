@@ -11,7 +11,7 @@
 		<FileVersion>$(Version)</FileVersion>
 		<LangVersion>preview</LangVersion>
 
-		<Author>veyn, croizat, Lother</Author>
+		<Author>veyn, croizat</Author>
 		<Name>Visland</Name>
 		<InternalName>visland</InternalName>
 		<Punchline>自動化無人島各項活動</Punchline>
