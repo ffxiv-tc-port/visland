@@ -12,7 +12,8 @@ public class WorkshopManual {
     private string _filter = "";
 
     public void Draw() {
-        ImGui.InputText("Filter", ref _filter, 256);
+        // "###Filter" keeps the ImGui id stable across languages; only the label moves.
+        ImGui.InputText("Filter".Loc() + "###Filter", ref _filter, 256);
         var sheetCraft = MJICraftworksObject.Get();
         foreach (var row in sheetCraft) {
             var name = row.Item.Value.Name.ToString() ?? "";
@@ -22,7 +23,7 @@ public class WorkshopManual {
         }
 
         ImGui.Separator();
-        ImGui.TextUnformatted("Recent items:");
+        ImGui.TextUnformatted("Recent items:".Loc());
         foreach (var i in _recents.ToArray()) // copy, since we might modify it...
         {
             DrawRowCraft(sheetCraft.GetRow(i)!, true);

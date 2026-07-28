@@ -47,7 +47,7 @@ public static unsafe class Utils {
         var res = item();
         ImGui.EndDisabled();
         if (disabled && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            ImGui.SetTooltip("Hold shift");
+            ImGui.SetTooltip("Hold shift".Loc());
         return res;
     }
     public static bool DangerousButton(string label) => DangerousItem(() => ImGui.Button(label));
@@ -62,7 +62,7 @@ public static unsafe class Utils {
         else
             ImGui.Dummy(size);
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Work in progress");
+            ImGui.SetTooltip("Work in progress".Loc());
     }
 
     private static float startTime;
