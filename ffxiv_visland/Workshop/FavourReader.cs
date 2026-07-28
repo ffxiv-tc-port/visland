@@ -11,7 +11,7 @@ namespace visland.Workshop;
 internal unsafe class FavourReader(List<string> botNames) {
     public WorkshopSolver.FavourState ReadFavourState(bool nextWeek) {
         var mji = MJIManager.Instance();
-        if (mji == null || mji->IsPlayerInSanctuary == 0)
+        if (mji == null || !mji->IsPlayerInSanctuary)
             throw new Exception("Favour data requires being on your island");
         var state = new WorkshopSolver.FavourState();
         var offset = nextWeek ? 6 : 3;

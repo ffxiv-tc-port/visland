@@ -1,5 +1,5 @@
 using Dalamud.Game.ClientState.Conditions;
-using ImGuiNET;
+using Dalamud.Bindings.ImGui;
 using Lumina.Excel.Sheets;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;

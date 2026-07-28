@@ -1,16 +1,16 @@
-using Dalamud.Game.ClientState.Conditions;
+﻿using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 
 namespace visland.Helpers;
 
 public static unsafe class AddonUtils {
     public static bool TryGetAddonByName<T>(string name, out T* addon) where T : unmanaged {
-        addon = (T*)Service.GameGui.GetAddonByName(name);
+        addon = (T*)Service.GameGui.GetAddonByName(name).Address;
         return addon != null;
     }
 
     public static bool TryGetAddonByName(string name, out AtkUnitBase* addon) {
-        addon = (AtkUnitBase*)Service.GameGui.GetAddonByName(name);
+        addon = (AtkUnitBase*)Service.GameGui.GetAddonByName(name).Address;
         return addon != null;
     }
 
