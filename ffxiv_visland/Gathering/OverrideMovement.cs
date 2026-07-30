@@ -21,15 +21,15 @@ public unsafe struct PlayerMoveControllerFlyInput {
 
 public unsafe class OverrideMovement : IDisposable {
     public bool Enabled {
-        get => _rmiWalkHook.IsEnabled;
+        get => _rmiWalkHook?.IsEnabled ?? false;
         set {
             if (value) {
-                _rmiWalkHook.Enable();
-                _rmiFlyHook.Enable();
+                _rmiWalkHook?.Enable();
+                _rmiFlyHook?.Enable();
             }
             else {
-                _rmiWalkHook.Disable();
-                _rmiFlyHook.Disable();
+                _rmiWalkHook?.Disable();
+                _rmiFlyHook?.Disable();
             }
         }
     }
@@ -41,43 +41,58 @@ public unsafe class OverrideMovement : IDisposable {
     private bool _legacyMode;
 
     private delegate bool RMIWalkIsInputEnabled(void* self);
-    private readonly RMIWalkIsInputEnabled _rmiWalkIsInputEnabled1;
-    private readonly RMIWalkIsInputEnabled _rmiWalkIsInputEnabled2;
+    private readonly RMIWalkIsInputEnabled? _rmiWalkIsInputEnabled1;
+    private readonly RMIWalkIsInputEnabled? _rmiWalkIsInputEnabled2;
 
     private delegate void RMIWalkDelegate(void* self, float* sumLeft, float* sumForward, float* sumTurnLeft, byte* haveBackwardOrStrafe, byte* a6, byte bAdditiveUnk);
-    private readonly Hook<RMIWalkDelegate> _rmiWalkHook;
+    private readonly Hook<RMIWalkDelegate>? _rmiWalkHook;
 
     private delegate void RMIFlyDelegate(void* self, PlayerMoveControllerFlyInput* result);
-    private readonly Hook<RMIFlyDelegate> _rmiFlyHook;
+    private readonly Hook<RMIFlyDelegate>? _rmiFlyHook;
 
     public OverrideMovement() {
-        var rmiWalkAddr = Service.SigScanner.ScanText("E8 ?? ?? ?? ?? 80 7B 3E 00 48 8D 3D");
-        var rmiFlyAddr = Service.SigScanner.ScanText("E8 ?? ?? ?? ?? 0F B6 0D ?? ?? ?? ?? B8");
-        _rmiWalkHook = Service.Hook.HookFromAddress<RMIWalkDelegate>(rmiWalkAddr, RMIWalkDetour);
-        _rmiFlyHook = Service.Hook.HookFromAddress<RMIFlyDelegate>(rmiFlyAddr, RMIFlyDetour);
-        Service.Log.Information($"RMIWalk address: 0x{rmiWalkAddr:X}");
-        Service.Log.Information($"RMIFly address: 0x{rmiFlyAddr:X}");
+        // Scan all four signatures fallibly (same pattern as OverrideCamera): a broken signature
+        // after a game patch should only degrade movement assist, not throw out of the ctor and
+        // (via Service.Init) take the whole plugin down.
+        if (Service.SigScanner.TryScanText("E8 ?? ?? ?? ?? 84 C0 75 10 38 43 3C", out var rmiWalkIsInputEnabled1Addr) &&
+            Service.SigScanner.TryScanText("E8 ?? ?? ?? ?? 84 C0 75 03 88 47 3F", out var rmiWalkIsInputEnabled2Addr)) {
+            Service.Log.Information($"RMIWalkIsInputEnabled1 address: 0x{rmiWalkIsInputEnabled1Addr:X}");
+            Service.Log.Information($"RMIWalkIsInputEnabled2 address: 0x{rmiWalkIsInputEnabled2Addr:X}");
+            _rmiWalkIsInputEnabled1 = Marshal.GetDelegateForFunctionPointer<RMIWalkIsInputEnabled>(rmiWalkIsInputEnabled1Addr);
+            _rmiWalkIsInputEnabled2 = Marshal.GetDelegateForFunctionPointer<RMIWalkIsInputEnabled>(rmiWalkIsInputEnabled2Addr);
+        }
+        else
+            Service.Log.Warning("RMIWalkIsInputEnabled signature(s) not found - walk movement override disabled");
 
-        var rmiWalkIsInputEnabled1Addr = Service.SigScanner.ScanText("E8 ?? ?? ?? ?? 84 C0 75 10 38 43 3C");
-        var rmiWalkIsInputEnabled2Addr = Service.SigScanner.ScanText("E8 ?? ?? ?? ?? 84 C0 75 03 88 47 3F");
-        Service.Log.Information($"RMIWalkIsInputEnabled1 address: 0x{rmiWalkIsInputEnabled1Addr:X}");
-        Service.Log.Information($"RMIWalkIsInputEnabled2 address: 0x{rmiWalkIsInputEnabled2Addr:X}");
-        _rmiWalkIsInputEnabled1 = Marshal.GetDelegateForFunctionPointer<RMIWalkIsInputEnabled>(rmiWalkIsInputEnabled1Addr);
-        _rmiWalkIsInputEnabled2 = Marshal.GetDelegateForFunctionPointer<RMIWalkIsInputEnabled>(rmiWalkIsInputEnabled2Addr);
+        // The walk detour calls both IsInputEnabled delegates, so only hook walk when they resolved.
+        if (_rmiWalkIsInputEnabled1 != null && Service.SigScanner.TryScanText("E8 ?? ?? ?? ?? 80 7B 3E 00 48 8D 3D", out var rmiWalkAddr)) {
+            _rmiWalkHook = Service.Hook.HookFromAddress<RMIWalkDelegate>(rmiWalkAddr, RMIWalkDetour);
+            Service.Log.Information($"RMIWalk address: 0x{rmiWalkAddr:X}");
+        }
+        else if (_rmiWalkIsInputEnabled1 != null)
+            Service.Log.Warning("RMIWalk signature not found - walk movement override disabled");
+
+        if (Service.SigScanner.TryScanText("E8 ?? ?? ?? ?? 0F B6 0D ?? ?? ?? ?? B8", out var rmiFlyAddr)) {
+            _rmiFlyHook = Service.Hook.HookFromAddress<RMIFlyDelegate>(rmiFlyAddr, RMIFlyDetour);
+            Service.Log.Information($"RMIFly address: 0x{rmiFlyAddr:X}");
+        }
+        else
+            Service.Log.Warning("RMIFly signature not found - fly movement override disabled");
 
         Service.GameConfig.UiControlChanged += OnConfigChanged;
         UpdateLegacyMode();
     }
 
     public void Dispose() {
-        _rmiWalkHook.Dispose();
-        _rmiFlyHook.Dispose();
+        _rmiWalkHook?.Dispose();
+        _rmiFlyHook?.Dispose();
         Service.GameConfig.UiControlChanged -= OnConfigChanged;
     }
 
     private void RMIWalkDetour(void* self, float* sumLeft, float* sumForward, float* sumTurnLeft, byte* haveBackwardOrStrafe, byte* a6, byte bAdditiveUnk) {
-        _rmiWalkHook.Original(self, sumLeft, sumForward, sumTurnLeft, haveBackwardOrStrafe, a6, bAdditiveUnk);
-        var movementAllowed = bAdditiveUnk == 0 && _rmiWalkIsInputEnabled1(self) && _rmiWalkIsInputEnabled2(self);
+        // only hooked when both IsInputEnabled delegates resolved, see ctor
+        _rmiWalkHook!.Original(self, sumLeft, sumForward, sumTurnLeft, haveBackwardOrStrafe, a6, bAdditiveUnk);
+        var movementAllowed = bAdditiveUnk == 0 && _rmiWalkIsInputEnabled1!(self) && _rmiWalkIsInputEnabled2!(self);
         if (movementAllowed && (IgnoreUserInput || *sumLeft == 0 && *sumForward == 0) && DirectionToDestination(false) is var relDir && relDir != null) {
             var dir = relDir.Value.h.ToDirection();
             *sumLeft = dir.X;
@@ -86,7 +101,7 @@ public unsafe class OverrideMovement : IDisposable {
     }
 
     private void RMIFlyDetour(void* self, PlayerMoveControllerFlyInput* result) {
-        _rmiFlyHook.Original(self, result);
+        _rmiFlyHook!.Original(self, result);
         if ((IgnoreUserInput || result->Forward == 0 && result->Left == 0 && result->Up == 0) && DirectionToDestination(true) is var relDir && relDir != null) {
             var dir = relDir.Value.h.ToDirection();
             result->Forward = dir.Y;

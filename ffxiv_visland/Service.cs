@@ -51,7 +51,10 @@ public class Service {
             Visland = new VislandIPC();
         }
         catch (Exception ex) {
+            // Rethrow so Dalamud reports a clean load failure instead of leaving the statics above
+            // half-null and turning every later window/command into a mystery NRE (zombie plugin).
             Log.Error(ex, $"Error initalising {nameof(Service)}");
+            throw;
         }
     }
 
