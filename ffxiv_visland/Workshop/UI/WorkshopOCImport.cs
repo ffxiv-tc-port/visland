@@ -5,10 +5,13 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Bindings.ImGui;
 using Lumina.Excel;
 using Lumina.Excel.Sheets;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Reflection;
 using visland.Helpers;
 
 namespace visland.Workshop;
@@ -20,6 +23,7 @@ public unsafe class WorkshopOCImport {
     private readonly WorkshopSeasonDB _seasonDB;
     private readonly ExcelSheet<MJICraftworksObject> _craftSheet;
     private readonly List<string> _botNames;
+    private readonly List<string> _botNamesEnglish;
     private readonly ClipboardParser _parser;
     private readonly ScheduleApplier _applier = new();
     private readonly FavourReader _favourReader;
@@ -31,9 +35,38 @@ public unsafe class WorkshopOCImport {
         _config = Service.Config.Get<WorkshopConfig>();
         _seasonDB = new WorkshopSeasonDB();
         _craftSheet = MJICraftworksObject.Get();
+        // Display names, in client language. Note that WithLanguage(English) is silently overridden
+        // to the client language by our TC Lumina fork (the TC client only ships TraditionalChinese
+        // EXD), so on TC these are the zh-TW item names - which is what we want to *show*. Anything
+        // that has to match the English text OC posts on Discord must NOT use these; that is what
+        // _botNamesEnglish (from the embedded mji-craft-map.json) is for.
         _botNames = [.. _craftSheet.Select(r => OSCHandler.OfficialNameToBotName(Item.GetRow(r.Item.RowId)!.Value.WithLanguage(ClientLanguage.English).Name.ExtractText()))];
-        _parser = new(_craftSheet, _botNames);
-        _favourReader = new(_botNames);
+        _botNamesEnglish = LoadEnglishBotNames(_craftSheet.Count);
+        _parser = new(_craftSheet, _botNamesEnglish);
+        _favourReader = new(_botNamesEnglish);
+    }
+
+    // English OC bot name per craft row id (index == MJICraftworksObject row id, "" when unmapped),
+    // loaded from the embedded english-name -> craft-id map so clipboard import and /favors keep
+    // working on clients whose game data has no English sheets (TC).
+    private static List<string> LoadEnglishBotNames(int count) {
+        var names = Enumerable.Repeat(string.Empty, count).ToList();
+        try {
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("visland.Workshop.Data.mji-craft-map.json")
+                ?? throw new Exception("Embedded resource visland.Workshop.Data.mji-craft-map.json not found");
+            using var reader = new StreamReader(stream);
+            foreach (var prop in JObject.Parse(reader.ReadToEnd()).Properties()) {
+                var id = prop.Value.Value<int>();
+                while (names.Count <= id)
+                    names.Add(string.Empty);
+                names[id] = prop.Name;
+            }
+            Service.Log.Info($"Loaded {names.Count(n => n.Length > 0)} English craft names from mji-craft-map.json");
+        }
+        catch (Exception ex) {
+            Service.Log.Error(ex, "Failed to load mji-craft-map.json - clipboard import and /favors will not match English names");
+        }
+        return names;
     }
 
     public void Update() {

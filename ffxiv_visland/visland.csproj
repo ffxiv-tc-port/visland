@@ -23,6 +23,7 @@
 
 	<ItemGroup>
 		<EmbeddedResource Include="Workshop\Data\workshop-seasons.json" LogicalName="visland.Workshop.Data.workshop-seasons.json" />
+		<EmbeddedResource Include="Workshop\Data\mji-craft-map.json" LogicalName="visland.Workshop.Data.mji-craft-map.json" />
 	</ItemGroup>
 
 	<ItemGroup>

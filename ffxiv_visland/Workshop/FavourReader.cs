@@ -1,6 +1,4 @@
 using FFXIVClientStructs.FFXIV.Client.Game.MJI;
-using Lumina.Data;
-using Lumina.Excel.Sheets;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -36,9 +34,12 @@ internal unsafe class FavourReader(List<string> botNames) {
         var offset = nextWeek ? 6 : 3;
         for (var i = 0; i < 3; ++i) {
             var id = state->CraftObjectIds[offset + i];
-            var name = MJICraftworksObject.GetRow(id)?.WithLanguage(Language.English).Item.Value.Name ?? string.Empty;
-            if (!name.IsEmpty)
-                res += $" favor{i + 1}:{botNames[id].Replace("\'", "")}";
+            // botNames comes from the embedded english-name map (see WorkshopOCImport); the game
+            // sheets can't provide English names on clients without English EXD (TC), and the OC
+            // Discord bot only understands English names.
+            var name = id < botNames.Count ? botNames[id] : string.Empty;
+            if (!string.IsNullOrEmpty(name))
+                res += $" favor{i + 1}:{name.Replace("\'", "")}";
         }
         return res;
     }
