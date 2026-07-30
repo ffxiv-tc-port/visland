@@ -18,8 +18,8 @@ jobs:
         id: check
         shell: bash
         run: |
-          PREFIX=$(grep -oP '(?<=<VersionPrefix>)[^<]+' ffxiv_visland/visland.csproj)
-          echo "Current VersionPrefix: $PREFIX (baseline: 7.15.0)"
+          PREFIX=$(grep -oP '(?<=<VersionPrefix>)[^<]+' ffxiv_visland/visland.csproj || true)
+          echo "Current VersionPrefix: ${PREFIX:-<none>} (baseline: 7.15.0)"
           if [ "$PREFIX" = "7.15.0" ]; then
             echo "proceed=false" >> "$GITHUB_OUTPUT"
           else
