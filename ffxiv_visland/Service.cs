@@ -29,6 +29,7 @@ public class Service {
     [PluginService] public static IFramework Framework { get; private set; } = null!;
     [PluginService] public static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] public static IAetheryteList AetheryteList { get; private set; } = null!;
+    [PluginService] public static IToastGui Toasts { get; private set; } = null!;
 
     public static Configuration Config { get; private set; } = null!;
     public static Retainers Retainers { get; private set; } = null!;

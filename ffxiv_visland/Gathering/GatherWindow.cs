@@ -202,10 +202,8 @@ public class GatherWindow : Window {
                 RouteDB.NotifyModified();
             ImGuiComponents.HelpMarker("Enables \"Gather Mode\" when on your Island Sanctuary automatically when commencing a route.".Loc());
 
-            using (ImRaii.Disabled()) {
-                if (ImGui.Checkbox("Stop Route on Error".Loc(), ref RouteDB.DisableOnErrors))
-                    RouteDB.NotifyModified();
-            }
+            if (ImGui.Checkbox("Stop Route on Error".Loc(), ref RouteDB.DisableOnErrors))
+                RouteDB.NotifyModified();
             ImGuiComponents.HelpMarker("Stops executing a route when you encounter a node you can't gather from due to full inventory.".Loc());
 
             if (ImGui.Checkbox("Teleport between zones".Loc(), ref RouteDB.TeleportBetweenZones))

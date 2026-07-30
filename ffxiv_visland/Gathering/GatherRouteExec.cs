@@ -65,10 +65,17 @@ public class GatherRouteExec : IDisposable {
 
     public GatherRouteExec() {
         RouteDB = Service.Config.Get<GatherRouteDB>();
+        // Reconnect the "stop route on error" chain: upstream's pre-reorg code had these
+        // subscriptions commented out and the reorg (683203a) dropped them entirely, leaving both
+        // CheckToDisable overloads dead code and the UI checkbox permanently disabled.
+        Service.ChatGui.CheckMessageHandled += CheckToDisable;
+        Service.Toasts.ErrorToast += CheckToDisable;
         Service.Framework.Update += Update;
     }
 
     public void Dispose() {
+        Service.ChatGui.CheckMessageHandled -= CheckToDisable;
+        Service.Toasts.ErrorToast -= CheckToDisable;
         Service.Framework.Update -= Update;
         Finish();
         _camera.Dispose();
