@@ -44,7 +44,7 @@ internal class ScheduleApplier {
         if (skippedMask != 0) {
             var skipped = FormatCycleMask(skippedMask);
             Service.Log.Info($"Skipping completed cycles: {skipped}");
-            Service.ChatGui.Print($"Skipping completed cycles: {skipped}", "visland");
+            Service.ChatGui.Print("Skipping completed cycles: ??".Loc(skipped), "visland");
         }
 
         var hasApplicable = false;
@@ -78,7 +78,7 @@ internal class ScheduleApplier {
             var changedRest = rest ^ currentRestCycles;
             if ((changedRest & completedCycles) != 0) {
                 Service.Log.Warning("Skipping rest-day adjustment: would affect cycles already done or in progress");
-                Service.ChatGui.Print("Skipping rest-day adjustment for this week — set rest days manually if needed", "visland");
+                Service.ChatGui.Print("Skipping rest-day adjustment for this week — set rest days manually if needed".Loc(), "visland");
             }
             else {
                 var newRest = nextWeek ? (rest << 7) | (agentData->RestCycles & 0x7F) : (agentData->RestCycles & 0x3F80) | rest;
@@ -106,7 +106,7 @@ internal class ScheduleApplier {
 
         WorkshopUtils.ResetCurrentCycleToRefreshUI();
         if (skippedMask != 0 || cycleInProgress >= 0 && hourSinceStart > 0)
-            Service.ChatGui.Print($"Applied {appliedSlots} craft(s) across {appliedCycles} cycle(s)", "visland");
+            Service.ChatGui.Print("Applied ?? craft(s) across ?? cycle(s)".Loc(appliedSlots, appliedCycles), "visland");
     }
 
     public static string FormatCycleMask(uint mask) {
