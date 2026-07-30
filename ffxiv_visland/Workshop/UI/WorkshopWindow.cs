@@ -8,6 +8,7 @@ namespace visland.Workshop;
 unsafe class WorkshopWindow : UIAttachedWindow {
     private readonly WorkshopConfig _config;
     private readonly WorkshopManual _manual = new();
+    private readonly WorkshopRest _rest = new();
     private readonly WorkshopOCImport _oc = new();
     private readonly WorkshopDebug _debug = new();
 
@@ -32,6 +33,9 @@ unsafe class WorkshopWindow : UIAttachedWindow {
             using (var tab = ImRaii.TabItem("Manual schedule".Loc()))
                 if (tab)
                     _manual.Draw();
+            using (var tab = ImRaii.TabItem("Rest days".Loc()))
+                if (tab)
+                    _rest.Draw();
             using (var tab = ImRaii.TabItem("Settings".Loc()))
                 if (tab)
                     DrawSettings();
