@@ -62,15 +62,18 @@ internal class ScheduleApplier {
         var currentRestCycles = nextWeek ? agentData->RestCycles >> 7 : agentData->RestCycles & 0x7F;
         if ((currentRestCycles & recommendations.CyclesMask) != 0) {
             var freeCycles = ~recommendations.CyclesMask & 0x7F;
-            if ((freeCycles & 1) == 0)
-                throw new Exception($"Sorry, we assume C1 is always rest - set rest days manually to match your schedule");
+            if (freeCycles == 0)
+                throw new Exception($"Schedule has crafts on all 7 days but rest days are set - clear a day or adjust rest days on the Rest days tab");
 
+            // 休日直接從空閒日中挑選:最低位 + 最高位。
+            // 當 C1 空閒時最低位就是 C1,結果與舊版「假設 C1 固定休」完全一致;
+            // C1 排了生產時(任意休日形狀的排班)也能正確套用,不再直接拒絕。
             uint rest;
             if (BitOperations.PopCount(freeCycles) == 1) {
                 rest = freeCycles;
             }
             else {
-                rest = (1u << (31 - BitOperations.LeadingZeroCount(freeCycles))) | 1;
+                rest = (1u << (31 - BitOperations.LeadingZeroCount(freeCycles))) | (1u << BitOperations.TrailingZeroCount(freeCycles));
                 if (BitOperations.PopCount(rest) != 2)
                     throw new Exception($"Something went wrong, failed to determine rest days");
             }
