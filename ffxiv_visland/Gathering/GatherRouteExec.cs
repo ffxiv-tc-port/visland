@@ -63,6 +63,13 @@ public class GatherRouteExec : IDisposable {
     private readonly Queue<long> _recentErrors = new();
     private const int MaxRecentErrors = 5;
 
+    // The repair chain runs on a task manager that clears its entire queue when a step exceeds 20s, and
+    // CanRepairAny() is recomputed from live durability rather than latched. A repair that can never
+    // succeed (repair action unusable, dark matter consumed mid-route, window never opens) would
+    // therefore be re-queued every 20s forever and the route would silently stall in place.
+    private int _repairAttempts;
+    private const int MaxRepairAttempts = 3;
+
     public GatherRouteExec() {
         RouteDB = Service.Config.Get<GatherRouteDB>();
         // Reconnect the "stop route on error" chain: upstream's pre-reorg code had these
@@ -91,6 +98,7 @@ public class GatherRouteExec : IDisposable {
         Loop = loopAtEnd;
         route.Waypoints[waypoint].Pathfind = pathfind;
         Pathfind = pathfind;
+        _repairAttempts = 0;
         _camera.Enabled = true;
         _movement.Enabled = true;
     }
@@ -296,11 +304,22 @@ public class GatherRouteExec : IDisposable {
             return;
         }
 
-        if (RouteDB.RepairGear && RepairAssistantManager.CanRepairAny(RouteDB.RepairPercent) && !AddonUtils.IsOccupied() && !Service.Condition[ConditionFlag.Mounted]) {
-            SetState(State.RepairingGear);
-            Service.Log.Debug("Repair gear task queued.");
-            Service.TaskManager.Enqueue(RepairAssistantManager.ProcessRepair, "RepairGear");
-            return;
+        var needsRepair = RouteDB.RepairGear && RepairAssistantManager.CanRepairAny(RouteDB.RepairPercent);
+        if (!needsRepair) {
+            _repairAttempts = 0; // gear is fine (or the feature is off) — a later repair starts from a clean slate
+        }
+        else if (!AddonUtils.IsOccupied() && !Service.Condition[ConditionFlag.Mounted]) {
+            if (_repairAttempts < MaxRepairAttempts) {
+                ++_repairAttempts;
+                SetState(State.RepairingGear);
+                Service.Log.Debug($"Repair gear task queued (attempt {_repairAttempts}/{MaxRepairAttempts}).");
+                Service.TaskManager.Enqueue(RepairAssistantManager.ProcessRepair, "RepairGear");
+                return;
+            }
+            if (_repairAttempts == MaxRepairAttempts) {
+                ++_repairAttempts; // only complain once
+                Service.Log.Error($"Gear still needs repair after {MaxRepairAttempts} attempts; continuing the route without repairing.");
+            }
         }
 
         if (RouteDB.PurifyCollectables && PurificationManager.CanPurifyAny() && !AddonUtils.IsOccupied() && !Service.Condition[ConditionFlag.Mounted]) {
