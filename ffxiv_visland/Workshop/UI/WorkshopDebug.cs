@@ -28,8 +28,8 @@ public unsafe class WorkshopDebug {
             WorkshopUtils.RequestDemandFavours();
 
         ImGui.SameLine();
-        if (ImGui.Button("Void 2nd rest (this week)"))
-            WorkshopUtils.VoidSecondRestThisWeek();
+        if (ImGui.Button("Relax 2nd rest (this week only)"))
+            WorkshopUtils.RelaxSecondRestThisWeek();
 
         var curWeek = WorkshopUtils.CurrentWeek();
         _tree.LeafNode($"Current week: #{curWeek.index}, started at {curWeek.startTime}");

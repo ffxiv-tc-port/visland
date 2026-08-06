@@ -59,17 +59,28 @@ internal class ScheduleApplier {
         if (!hasApplicable)
             throw new Exception("No remaining cycles to apply — the whole schedule is already done or in progress");
 
-        var currentRestCycles = nextWeek ? agentData->RestCycles >> 7 : agentData->RestCycles & 0x7F;
+        // 🔴 順序:一定要「先改休息日、再排程」。
+        // 台服 Addon 15151:「確定要變更休息日的預定時間嗎?制定在以下生產日的生產計畫將被全部刪除」——
+        // 反過來做會把剛排好的計畫清掉。
+        // 🔴 休息日一律讀 agent 的 RestCycles mask(本週低 7 位、下週高 7 位),
+        // 不要用 MJIManager.CraftworksRestDays(分不出「零休息日」與「C1 休息」)。
+        var currentRestCycles = (nextWeek ? agentData->RestCycles >> 7 : agentData->RestCycles) & 0x7Fu;
         if ((currentRestCycles & recommendations.CyclesMask) != 0) {
             var freeCycles = ~recommendations.CyclesMask & 0x7F;
-            if (freeCycles == 0)
-                throw new Exception($"Schedule has crafts on all 7 days but rest days are set - clear a day or adjust rest days on the Rest days tab");
 
             // 休日直接從空閒日中挑選:最低位 + 最高位。
             // 當 C1 空閒時最低位就是 C1,結果與舊版「假設 C1 固定休」完全一致;
             // C1 排了生產時(任意休日形狀的排班)也能正確套用,不再直接拒絕。
             uint rest;
-            if (BitOperations.PopCount(freeCycles) == 1) {
+            if (freeCycles == 0) {
+                // 7 天全排(補滿空生產日之後的正常情形)。遊戲引擎沒有「每週兩天休息」的限制,
+                // 那是原生介面的規則,所以這裡把該週的休息日清空即可,不必拒絕整份排程。
+                // ⚠️ 兩週都歸零時 mask 會是 0,而 agent 用 NewRestCycles==0 當「尚無變更」的哨兵,
+                // 這種情況下寫入可能被當成 no-op —— 下面會回讀確認並在沒生效時明講。
+                rest = 0;
+                Service.Log.Information($"Schedule covers all 7 cycles; clearing {(nextWeek ? "next" : "this")} week's rest days (was {FormatCycleMask(currentRestCycles)})");
+            }
+            else if (BitOperations.PopCount(freeCycles) == 1) {
                 rest = freeCycles;
             }
             else {
@@ -86,6 +97,10 @@ internal class ScheduleApplier {
             else {
                 var newRest = nextWeek ? (rest << 7) | (agentData->RestCycles & 0x7F) : (agentData->RestCycles & 0x3F80) | rest;
                 WorkshopUtils.SetRestCycles(newRest);
+                // 寫入是走 agent 事件、可能要等伺服器,所以同一幀讀回來通常還是舊值 —— 這不是錯誤。
+                // 留下「要求值 vs 當下值」這一對數字,是為了讓實機 log 能區分
+                // 「休息日沒改成功所以那幾天沒排到」與「排程本身有問題」這兩種完全不同的故障。
+                Service.Log.Information($"Rest mask requested 0x{newRest & 0x3FFFu:X}, mask at write time 0x{agentData->RestCycles & 0x3FFFu:X} (write is async; Rest days tab shows the settled value)");
             }
         }
 

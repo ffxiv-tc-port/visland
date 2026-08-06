@@ -4,6 +4,7 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 using Lumina.Excel.Sheets;
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using visland.Helpers;
 
 namespace visland.Workshop;
@@ -57,16 +58,47 @@ public static unsafe class WorkshopUtils {
         Utils.SynthesizeEvent(&agent->AgentInterface, 5, [new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int, Int = 0 }]);
     }
 
-    public static bool VoidSecondRestThisWeek() {
-        const uint voidThisWeek = 0x2081u; // this=C1 (0x01), next=C1+C7 (0x41 << 7)
+    // 放寬「本週期」多出來的休息日,讓封存排程的第二個休息日可以拿來生產。
+    //
+    // 🔴 舊版寫死 mask 0x2081,那是 本週C1(bit0) + 下週C1(bit7) + 下週C7(bit13) 三個位元。
+    //    它從 WorkshopWindow.OnOpen 無條件呼叫(FavourMode == MinMaxFreeRestDay 時),
+    //    等於每開一次工房視窗就把**下週**的休息日覆寫成 C1+C7,
+    //    而變更休息日會刪光那些生產日已排的生產計畫(台服 Addon 15151)。
+    //    現在:下週期的位元原封不動,只碰本週期的低 7 位。
+    // 🔴 而且只做「減少休息日」,絕不新增 —— 零休息日的玩家不該因為開個視窗就多出休息日。
+    //    (只移除休息日時,新的休息日集合是舊集合的子集,不會有任何生產日被清空。)
+    public static bool RelaxSecondRestThisWeek() {
         var agent = AgentMJICraftSchedule.Instance();
         if (agent == null || agent->Data == null)
             return false;
-        if (agent->Data->RestCycles == voidThisWeek)
+
+        var current = agent->Data->RestCycles;
+        var thisWeek = current & 0x7Fu;
+        if (BitOperations.PopCount(thisWeek) < 2)
+            return false; // 已經 0 或 1 天休息,沒有「第二個」可以放掉
+
+        var keep = 1u << BitOperations.TrailingZeroCount(thisWeek); // 保留最早的那一天
+        var dropped = thisWeek & ~keep;
+
+        // 已完成/進行中的生產日不能改(與 Rest days 分頁同一條規則:day <= CycleInProgress)
+        var locked = (1u << (agent->Data->CycleInProgress + 1)) - 1;
+        if ((dropped & locked) != 0) {
+            Service.Log.Information($"Not relaxing rest days: {ScheduleApplier.FormatCycleMask(dropped & locked)} already done or in progress");
             return false;
-        Service.Log.Info($"Voiding this week's second rest: 0x{agent->Data->RestCycles:X} → 0x{voidThisWeek:X}");
-        SetRestCycles(voidThisWeek);
+        }
+
+        var target = (current & 0x3F80u) | keep;
+        Service.Log.Information($"Relaxing this week's extra rest day(s) {ScheduleApplier.FormatCycleMask(dropped)}: rest mask 0x{current:X} -> 0x{target:X} (next week untouched)");
+        SetRestCycles(target);
         return true;
+    }
+
+    // 🔴 判斷休息日一律讀這個 14-bit mask(本週低 7 位、下週高 7 位)。
+    // 不要用 MJIManager.CraftworksRestDays —— 那是 4 個 byte 的「休息日編號清單」(0~13),
+    // 「完全沒有休息日」與「C1 是休息日」都會讀成 0,兩者分不出來。
+    public static uint GetRestCycleMask() {
+        var agent = AgentMJICraftSchedule.Instance();
+        return agent == null || agent->Data == null ? 0 : agent->Data->RestCycles & 0x3FFFu;
     }
 
     public static void RequestDemandFavours() {
@@ -86,6 +118,8 @@ public static unsafe class WorkshopUtils {
         };
     }
 
+    // ⚠️ 這支回傳的是 MJIManager 那份原始的「休息日編號清單」,只給 Debug 分頁原樣顯示用。
+    // 要判斷某一天是不是休息日請用 GetRestCycleMask() —— 見上面的說明。
     public static List<int> GetCurrentRestCycles() {
         var restDays1 = MJIManager.Instance()->CraftworksRestDays[0];
         var restDays2 = MJIManager.Instance()->CraftworksRestDays[1];
@@ -95,11 +129,12 @@ public static unsafe class WorkshopUtils {
         return [restDays1, restDays2, restDays3, restDays4];
     }
 
+    // 改讀 RestCycles mask:原本用 GetCurrentRestCycles() 的清單,
+    // 「沒有休息日」與「C1 休息」都是 0,零休的玩家會被誤判成 C1 休息而跳過第一天。
     public static int GetNextNonRestCycle(int cycle) {
-        var restCycles = GetCurrentRestCycles();
-        while (restCycles.Contains(cycle))
+        var mask = GetRestCycleMask();
+        while (cycle is >= 0 and < 14 && (mask & (1u << cycle)) != 0)
             cycle++;
-
         return cycle;
     }
 }

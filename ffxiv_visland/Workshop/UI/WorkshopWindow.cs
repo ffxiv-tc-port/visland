@@ -1,3 +1,4 @@
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using visland.Helpers;
 using Dalamud.Bindings.ImGui;
@@ -50,7 +51,7 @@ unsafe class WorkshopWindow : UIAttachedWindow {
             WorkshopUtils.SetCurrentCycle(AgentMJICraftSchedule.Instance()->Data->CycleInProgress + 1);
         }
         if (_config.FavourMode == FavourMode.MinMaxFreeRestDay)
-            WorkshopUtils.VoidSecondRestThisWeek();
+            WorkshopUtils.RelaxSecondRestThisWeek();
         if (_config.AutoImport)
             _oc.LoadSeasonRecs(false, silent: true);
     }
@@ -78,9 +79,25 @@ unsafe class WorkshopWindow : UIAttachedWindow {
             FavourMode.None => "Loads the archived Overseas Casuals schedule as-is. Use manual favour overrides if needed.".Loc(),
             FavourMode.ReplaceWorkshop4 => "Workshops 1-3 keep the archive schedule. Workshop 4 is filled from the built-in favour solver, after crediting any favour crafts already produced by the recommended agenda.".Loc(),
             FavourMode.MinMax => "Tries same-duration/category substitutions first, then places remaining favours on the lowest-value workshop slots so high-cowrie days stay intact when possible.".Loc(),
-            FavourMode.MinMaxFreeRestDay => "Same as min-max, but turns the archive's second rest day into a crafting day (C1 stays rest) so most favours can land on a \"free\" day.".Loc(),
+            FavourMode.MinMaxFreeRestDay => "Same as min-max, but turns the archive's second rest day into a crafting day (the earliest rest day stays) so most favours can land on a \"free\" day. Only this week's rest days are touched, and rest days are only ever removed, never added.".Loc(),
             _ => "",
         });
+
+        ImGui.Separator();
+        ImGui.TextUnformatted("Empty cycles".Loc());
+        if (ImGui.Checkbox("Fill the cycles the archive leaves empty".Loc(), ref _config.FillEmptyDays))
+            _config.NotifyModified();
+        ImGui.TextWrapped("The Overseas Casuals archive only covers 5 production days per season. The game itself allows crafting on all 7 (rest days are a rule of the native UI, not of the game). When enabled, the remaining cycles are solved locally from the game's own popularity and supply data, counting what the archive days already produce so the same items are not picked twice.".Loc());
+
+        ImGui.Separator();
+        ImGui.TextUnformatted("Season alignment".Loc());
+        var offset = _config.SeasonOffset;
+        ImGui.SetNextItemWidth(120 * ImGuiHelpers.GlobalScale);
+        if (ImGui.InputInt("Season offset (weeks)".Loc(), ref offset)) {
+            _config.SeasonOffset = offset;
+            _config.NotifyModified();
+        }
+        ImGui.TextWrapped("Shifts which archive season is loaded, in whole weeks. Leave at 0 unless the Schedule tab's alignment readout shows the computed season is out of phase with the game.".Loc());
 
         ImGui.Separator();
         if (ImGui.Checkbox("Show advanced favour override controls".Loc(), ref _config.UseFavourSolver))

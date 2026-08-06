@@ -30,6 +30,7 @@ public unsafe class WorkshopOCImport {
     private readonly List<Func<bool>> _pendingActions = [];
     private int _loadedSeason;
     private bool _loadedNextWeek;
+    private WorkshopDayFiller.Report? _fillReport;
 
     public WorkshopOCImport() {
         _config = Service.Config.Get<WorkshopConfig>();
@@ -77,11 +78,13 @@ public unsafe class WorkshopOCImport {
     public void Draw() {
         using var globalDisable = ImRaii.Disabled(_pendingActions.Count > 0);
 
-        var thisSeason = _seasonDB.CurrentSeason(false);
-        var nextSeason = _seasonDB.CurrentSeason(true);
+        var align = WorkshopSeasonDiagnostics.Capture(_seasonDB, _config.SeasonOffset);
+        var thisSeason = align.ThisSeason;
+        var nextSeason = align.NextSeason;
         ImGui.TextUnformatted("Archive seasons ??-?? (cycle ??)".Loc(_seasonDB.RangeStart, _seasonDB.RangeEnd, _seasonDB.CycleLength));
         ImGui.TextUnformatted("This week → Season ??".Loc(thisSeason) + (_seasonDB.TryGet(thisSeason, out var cur) ? $" ({cur.Date})" : $" ({"missing".Loc()})"));
         ImGui.TextUnformatted("Next week → Season ??".Loc(nextSeason) + (_seasonDB.TryGet(nextSeason, out var nxt) ? $" ({nxt.Date})" : $" ({"missing".Loc()})"));
+        DrawSeasonAlignment(align);
 
         if (ImGui.Button("Load This Week".Loc()))
             LoadSeasonRecs(false);
@@ -101,6 +104,7 @@ public unsafe class WorkshopOCImport {
 
         if (_loadedSeason != 0)
             ImGui.TextUnformatted("Loaded season ??".Loc(_loadedSeason) + $" ({(_loadedNextWeek ? "next week" : "this week").Loc()})");
+        DrawFillReport();
 
         ImGui.Separator();
 
@@ -200,14 +204,67 @@ public unsafe class WorkshopOCImport {
     }
 
     private void ApplySeason(bool nextWeek, WorkshopSolver.FavourState? favours) {
-        var season = _seasonDB.CurrentSeason(nextWeek);
+        var season = _seasonDB.Shift(_seasonDB.CurrentSeason(nextWeek), _config.SeasonOffset);
         var baseRecs = _seasonDB.BuildRecs(season);
         Recommendations = favours == null || _config.FavourMode == FavourMode.None
             ? baseRecs
             : FavourIntegration.Apply(baseRecs, _config.FavourMode, favours.Value, _craftSheet, _seasonDB.RestCycles(season));
+
+        // 補封存沒給的生產日。刻意放在請求整合**之後**:請求模式(尤其 MinMaxFreeRestDay)
+        // 自己會動封存的休息日,先跑它才知道最後到底哪幾天還是空的。
+        _fillReport = null;
+        if (_config.FillEmptyDays) {
+            Recommendations = WorkshopDayFiller.Fill(Recommendations, nextWeek, _craftSheet, out var report);
+            _fillReport = report;
+            if (report.Filled)
+                Service.Log.Information($"[fill-empty-days] filled {WorkshopDayFiller.FormatCycles(report.FilledCycles)} across {report.Workshops} workshop(s): " +
+                    $"added value {report.AddedValue:F0} vs archive average {report.ArchiveValuePerDay:F0}/day over {report.ArchiveDays} day(s) " +
+                    $"= {(report.ArchiveValuePerDay > 0 ? report.AddedValue / report.ArchiveValuePerDay : 0):F2} archive-days worth");
+            else
+                Service.Log.Information($"[fill-empty-days] nothing added: {report.SkipReason}");
+        }
+
         _loadedSeason = season;
         _loadedNextWeek = nextWeek;
         Service.Log.Info($"Loaded workshop season {season} (favour mode {_config.FavourMode})");
+        WorkshopSeasonDiagnostics.Log(WorkshopSeasonDiagnostics.Capture(_seasonDB, _config.SeasonOffset), _seasonDB);
+    }
+
+    // 季號對位:算出來的季號 vs 遊戲實際的受歡迎度列號。
+    // 這兩個數字擺在一起,實機看一眼就知道相位有沒有對上 —— 離線沒有辦法判定(見 WorkshopSeasonDiagnostics)。
+    // ⚠️ 資料還沒抓到時畫「?」不畫 0:把「不知道」畫成 0 會直接誤導。
+    private static void DrawSeasonAlignment(WorkshopSeasonDiagnostics.Snapshot s) {
+        var text = "In-game popularity row: this ?? / next ??".Loc(s.CurrentPopularityText, s.NextPopularityText);
+        if (!s.DemandKnown)
+            ImGui.TextColored(new Vector4(0.65f, 0.65f, 0.65f, 1f), text + "  " + "(demand data not fetched yet)".Loc());
+        else if (!s.NextFollowsCurrent)
+            ImGui.TextColored(new Vector4(1f, 0.7f, 0.2f, 1f), text + "  " + "(next is not this+1 - the 100-week cycle assumption may be wrong)".Loc());
+        else
+            ImGui.TextUnformatted(text + "  " + "(offset ??)".Loc(s.ImpliedOffset));
+        ImGuiComponents.HelpMarker(
+            "The archive season number is derived from the date alone and has never been checked against the game.".Loc() + "\n" +
+            "If it is out of phase, the loaded schedule is the wrong season - it still earns cowries, just fewer, and nothing reports an error.".Loc() + "\n" +
+            "These numbers are also written to the log at Information level on every archive load.".Loc() + "\n" +
+            "Season offset in Settings shifts the season by whole weeks once you know the correct phase.".Loc());
+    }
+
+    // 補上的兩天值不值得,用同一把尺跟封存那幾天比。數字也會進 log。
+    private void DrawFillReport() {
+        if (_fillReport is not { } r)
+            return;
+        if (!r.Filled) {
+            if (r.SkipReason != null)
+                ImGui.TextColored(new Vector4(0.65f, 0.65f, 0.65f, 1f), "Empty cycles not filled: ??".Loc(r.SkipReason));
+            return;
+        }
+        var perDay = r.ArchiveValuePerDay > 0 ? r.AddedValue / (r.FilledCycles.Count * r.ArchiveValuePerDay) : 0;
+        ImGui.TextColored(new Vector4(0.5f, 0.9f, 0.5f, 1f),
+            "Filled ?? with a local solve (~??x an archive day)".Loc(WorkshopDayFiller.FormatCycles(r.FilledCycles), perDay.ToString("F2")));
+        ImGuiComponents.HelpMarker(
+            "The Overseas Casuals archive only ever covers 5 production days; the game itself has no such limit.".Loc() + "\n" +
+            "These cycles are solved locally from the game's own popularity and supply data, after accounting for what the archive days already produce.".Loc() + "\n" +
+            "Relative value (not actual cowries): added ?? vs archive average ?? per day over ?? day(s), ?? workshop(s).".Loc(
+                r.AddedValue.ToString("F0"), r.ArchiveValuePerDay.ToString("F0"), r.ArchiveDays, r.Workshops));
     }
 
     private void DrawCycleRecommendations() {
