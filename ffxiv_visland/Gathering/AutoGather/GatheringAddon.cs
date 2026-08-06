@@ -8,10 +8,23 @@ namespace visland.Gathering.AutoGather;
 
 public static unsafe partial class GatheringAddon {
     public sealed class Gathering {
-        private readonly AddonGathering* _addon;
+        private const string AddonName = "Gathering";
 
-        public Gathering(nint addon) => _addon = (AddonGathering*)addon;
-        public Gathering(void* addon) => _addon = (AddonGathering*)addon;
+        /// <summary>
+        /// 當下這一刻的 addon 指標，查不到回 <c>null</c>。
+        /// <para>🔴 <b>刻意不快取、不跨幀保存。</b> 原本的寫法是在 <c>PostSetup</c> 把
+        /// <c>args.Addon</c> 存進 <c>readonly</c> 欄位、靠 <c>PreFinalize</c> 清成 null。
+        /// 那條生命週期只要沒走到（addon 開著時外掛 reload、事件沒送達……），
+        /// 欄位裡就是**懸空指標**——而懸空**不等於 null**，所有既有的判空一個都擋不住，
+        /// 解參考下去就是存取違規，且 AVE 是 .NET Core 的 corrupted-state exception，
+        /// 外圈 <c>try/catch</c> 完全攔不到。</para>
+        /// <para>📌 重查的代價：一次原生 <c>GetAddonByName</c>（unit list 名稱比對），
+        /// 字串參數走 <c>stackalloc</c> 不配置堆積，對每幀路徑而言可以忽略。
+        /// 🔴 但呼叫端一律「<b>取一次存成區域變數</b>」再用，不要在同一條 <c>-&gt;</c> 鏈裡重查——
+        /// 那既多花錢又會製造 TOCTOU。</para>
+        /// <para>🔴 查不到是常態（addon 沒開），**不記錄**——這是每幀路徑。</para>
+        /// </summary>
+        private static AddonGathering* Addon => (AddonGathering*)Service.GameGui.GetAddonByName(AddonName).Address;
 
         /// <summary>
         /// 三態版本的目前完整度：<c>null</c> ＝ <b>現在讀不到</b>（addon 或文字節點還沒建好／正在收），
@@ -42,9 +55,10 @@ public static unsafe partial class GatheringAddon {
         /// AVE 是 .NET Core 的 corrupted-state exception，外圈 <c>try/catch</c> 完全攔不到。</para>
         /// <para>🔴 這是每幀路徑（<c>GatherRouteExec.Update</c>），失敗只回 <c>null</c>，**不記錄**。</para>
         /// </summary>
-        private int? IntegrityOf(uint nodeId) {
-            if (_addon == null) return null;
-            var node = _addon->GetTextNodeById(nodeId);
+        private static int? IntegrityOf(uint nodeId) {
+            var addon = Addon; // 取一次，下面整條鏈都用這個當幀值
+            if (addon == null) return null;
+            var node = addon->GetTextNodeById(nodeId);
             return node == null ? null : ParseFirstInt(node->NodeText.ToString());
         }
 
@@ -59,28 +73,34 @@ public static unsafe partial class GatheringAddon {
         }
 
         public void Gather(int index) {
+            // 整個操作只解析一次 addon：核取方塊與 FireCallback 必須指向同一幀的同一個 addon，
+            // 中間重查等於允許兩者來自不同物件。
+            var addon = Addon;
+            if (addon == null)
+                return;
             // CheckBoxEnabled 只有在「已確認可勾選」時才回 true；讀不到（元件或 OwnerNode 還沒建好）
             // 回 null，一樣不送 callback——失敗形式是「這一幀不做事」，下一幀重試。
-            if (CheckBoxEnabled(CheckboxAt(index)) != true)
+            if (CheckBoxEnabled(CheckboxAt(addon, index)) != true)
                 return;
             var values = stackalloc AtkValue[2];
             values[0].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int;
             values[0].Int = 2;
             values[1].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt;
             values[1].UInt = (uint)index;
-            ((AtkUnitBase*)_addon)->FireCallback(1, values);
+            ((AtkUnitBase*)addon)->FireCallback(1, values);
         }
 
-        // _addon 為 null 時不解參考（FixedSizeArray 的索引器本身就是 this 上的偏移計算）。
-        private AtkComponentCheckBox* CheckboxAt(int index) => _addon == null ? null : index switch {
-            0 => _addon->GatheredItemComponentCheckbox[0],
-            1 => _addon->GatheredItemComponentCheckbox[1],
-            2 => _addon->GatheredItemComponentCheckbox[2],
-            3 => _addon->GatheredItemComponentCheckbox[3],
-            4 => _addon->GatheredItemComponentCheckbox[4],
-            5 => _addon->GatheredItemComponentCheckbox[5],
-            6 => _addon->GatheredItemComponentCheckbox[6],
-            7 => _addon->GatheredItemComponentCheckbox[7],
+        // addon 為 null 時不解參考（FixedSizeArray 的索引器本身就是 this 上的偏移計算）。
+        // 🔴 addon 由呼叫端解析後傳進來，不在這裡重查：同一次操作內必須是同一個 addon。
+        private static AtkComponentCheckBox* CheckboxAt(AddonGathering* addon, int index) => addon == null ? null : index switch {
+            0 => addon->GatheredItemComponentCheckbox[0],
+            1 => addon->GatheredItemComponentCheckbox[1],
+            2 => addon->GatheredItemComponentCheckbox[2],
+            3 => addon->GatheredItemComponentCheckbox[3],
+            4 => addon->GatheredItemComponentCheckbox[4],
+            5 => addon->GatheredItemComponentCheckbox[5],
+            6 => addon->GatheredItemComponentCheckbox[6],
+            7 => addon->GatheredItemComponentCheckbox[7],
             _ => throw new ArgumentOutOfRangeException(nameof(index)),
         };
 
@@ -101,7 +121,7 @@ public static unsafe partial class GatheringAddon {
         }
 
         public sealed class GatheredItem(Gathering owner, int index) {
-            private AtkComponentCheckBox* CheckBox => owner.CheckboxAt(index);
+            private AtkComponentCheckBox* CheckBox => CheckboxAt(Addon, index);
 
             /// <summary>三態版本：<c>null</c> ＝ 現在讀不到，<b>不是</b>「已確認停用」。</summary>
             public bool? IsEnabledOrUnknown => CheckBoxEnabled(CheckBox);
@@ -111,8 +131,13 @@ public static unsafe partial class GatheringAddon {
 
             public string ItemName => TextOf(23);
             // ItemIds 是 FixedSizeArray8（index 固定 0..7，上界由呼叫端保證），
-            // 但 _addon 本身仍要判空，否則索引器等於在 null 上算偏移再解參考。
-            public uint ItemID => owner._addon == null ? 0 : owner._addon->ItemIds[index];
+            // 但 addon 本身仍要判空，否則索引器等於在 null 上算偏移再解參考。
+            public uint ItemID {
+                get {
+                    var addon = Addon;
+                    return addon == null ? 0 : addon->ItemIds[index];
+                }
+            }
             public bool IsCollectable => Service.DataManager.GetExcelSheet<Item>()?.GetRowOrDefault(ItemID)?.IsCollectable ?? false;
             public int ItemLevel => ParseFirstInt(TextOf(21));
             public int GatherChance => ParseFirstInt(TextOf(10));
@@ -136,12 +161,17 @@ public static unsafe partial class GatheringAddon {
     }
 
     public sealed class GatheringMasterpiece {
-        private readonly AddonGatheringMasterpiece* _addon;
+        private const string AddonName = "GatheringMasterpiece";
 
-        public GatheringMasterpiece(nint addon) => _addon = (AddonGatheringMasterpiece*)addon;
-        public GatheringMasterpiece(void* addon) => _addon = (AddonGatheringMasterpiece*)addon;
+        /// <summary>
+        /// 當下這一刻的 addon 指標，查不到回 <c>null</c>。
+        /// 🔴 刻意不快取、不跨幀保存，理由與 <see cref="Gathering"/> 的同名成員相同：
+        /// 靠 <c>PreFinalize</c> 清指標的舊寫法只要事件沒送達就留下**懸空指標**，
+        /// 而懸空**不等於 null**，判空擋不住、<c>try/catch</c> 也攔不到 AVE。
+        /// </summary>
+        private static AddonGatheringMasterpiece* Addon => (AddonGatheringMasterpiece*)Service.GameGui.GetAddonByName(AddonName).Address;
 
-        private AtkUnitBase* Unit => (AtkUnitBase*)_addon;
+        private static AtkUnitBase* Unit => (AtkUnitBase*)Addon;
 
         /// <summary>
         /// 取第 <paramref name="index"/> 個 <c>AtkValue</c>，取不到回 <c>null</c>。
@@ -153,20 +183,20 @@ public static unsafe partial class GatheringAddon {
         /// 不會 AVE），而台服實際塞什麼 <c>ValueType</c> 無法離線確認——加嚴會靜默停掉本來正常的採集。
         /// 這次只補「不越界」，不動數值語意。</para>
         /// </summary>
-        private AtkValue* ValueAt(int index) {
-            var unit = Unit;
+        private static AtkValue* ValueAt(int index) {
+            var unit = Unit; // 取一次，下面整段都用這個當幀值
             if (unit == null) return null;
             var values = unit->AtkValues;
             if (values == null || index < 0 || index >= unit->AtkValuesCount) return null;
             return &values[index];
         }
 
-        private int? IntAt(int index) {
+        private static int? IntAt(int index) {
             var v = ValueAt(index);
             return v == null ? null : v->Int;
         }
 
-        private uint? UIntAt(int index) {
+        private static uint? UIntAt(int index) {
             var v = ValueAt(index);
             return v == null ? null : v->UInt;
         }
@@ -176,9 +206,14 @@ public static unsafe partial class GatheringAddon {
         /// setup 當幀／收視窗時可能還是 null，直接解 <c>-&gt;NodeText</c> 就是存取違規入口。
         /// 讀不到回空字串。
         /// </summary>
-        public string ItemName => _addon == null || _addon->ItemName == null
-            ? string.Empty
-            : _addon->ItemName->NodeText.ToString();
+        public string ItemName {
+            get {
+                var addon = Addon; // 取一次：判空與解參考必須是同一個物件
+                return addon == null || addon->ItemName == null
+                    ? string.Empty
+                    : addon->ItemName->NodeText.ToString();
+            }
+        }
 
         /// <summary>三態版本：<c>null</c> ＝ 現在讀不到（陣列還沒配好／長度不足），<b>不是</b>「值就是 0」。</summary>
         public int? CurrentCollectabilityOrUnknown => IntAt(13);
