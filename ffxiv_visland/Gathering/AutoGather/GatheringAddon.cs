@@ -27,8 +27,9 @@ public static unsafe partial class GatheringAddon {
         }
 
         public void Gather(int index) {
-            var checkbox = CheckboxAt(index);
-            if (checkbox == null || !checkbox->IsEnabled)
+            // CheckBoxEnabled 只有在「已確認可勾選」時才回 true；讀不到（元件或 OwnerNode 還沒建好）
+            // 回 null，一樣不送 callback——失敗形式是「這一幀不做事」，下一幀重試。
+            if (CheckBoxEnabled(CheckboxAt(index)) != true)
                 return;
             var values = stackalloc AtkValue[2];
             values[0].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int;
@@ -50,16 +51,52 @@ public static unsafe partial class GatheringAddon {
             _ => throw new ArgumentOutOfRangeException(nameof(index)),
         };
 
+        /// <summary>
+        /// 安全地讀取採集項目核取方塊的「可否勾選」狀態。
+        /// <para><c>null</c> ＝ <b>現在讀不到</b>（元件指標或 OwnerNode 還沒建好），
+        /// <b>不代表</b>「已確認為停用」——判斷式要顯式區分這兩者。</para>
+        /// <para>🔴 CS 的 <c>AtkComponentButton.IsEnabled</c> 是
+        /// <c>AtkComponentBase.OwnerNode-&gt;AtkResNode.NodeFlags.HasFlag(...)</c>：
+        /// 它解的是 <c>+0xA8</c> 的 <c>OwnerNode</c>（不是 <c>+0xA0</c> 的 <c>AtkResNode</c>），
+        /// 而且對它零 null 檢查。AVE 是 .NET Core 的 corrupted-state exception，
+        /// <c>try/catch</c> 完全攔不到，只能在讀取前擋下來。</para>
+        /// </summary>
+        internal static bool? CheckBoxEnabled(AtkComponentCheckBox* checkbox) {
+            if (checkbox == null) return null;
+            if (checkbox->AtkComponentButton.AtkComponentBase.OwnerNode == null) return null;
+            return checkbox->AtkComponentButton.IsEnabled;
+        }
+
         public sealed class GatheredItem(Gathering owner, int index) {
             private AtkComponentCheckBox* CheckBox => owner.CheckboxAt(index);
-            public bool IsEnabled => CheckBox->IsEnabled;
-            public string ItemName => CheckBox->GetTextNodeById(23)->GetAsAtkTextNode()->NodeText.ToString();
+
+            /// <summary>三態版本：<c>null</c> ＝ 現在讀不到，<b>不是</b>「已確認停用」。</summary>
+            public bool? IsEnabledOrUnknown => CheckBoxEnabled(CheckBox);
+
+            /// <summary>只有「已確認可勾選」才回 <c>true</c>；讀不到一律 <c>false</c>（＝這次不動作）。</summary>
+            public bool IsEnabled => IsEnabledOrUnknown == true;
+
+            public string ItemName => TextOf(23);
             public uint ItemID => owner._addon->ItemIds[index];
             public bool IsCollectable => Service.DataManager.GetExcelSheet<Item>()?.GetRowOrDefault(ItemID)?.IsCollectable ?? false;
-            public int ItemLevel => ParseFirstInt(CheckBox->GetTextNodeById(21)->GetAsAtkTextNode()->NodeText.ToString());
-            public int GatherChance => ParseFirstInt(CheckBox->GetTextNodeById(10)->GetAsAtkTextNode()->NodeText.ToString());
-            public int BoonChance => ParseFirstInt(CheckBox->GetTextNodeById(16)->GetAsAtkTextNode()->NodeText.ToString());
+            public int ItemLevel => ParseFirstInt(TextOf(21));
+            public int GatherChance => ParseFirstInt(TextOf(10));
+            public int BoonChance => ParseFirstInt(TextOf(16));
             public void Gather() => owner.Gather(index);
+
+            /// <summary>
+            /// 讀元件底下某個文字節點。整條 <c>CheckBox-&gt;GetTextNodeById-&gt;GetAsAtkTextNode</c>
+            /// 都是原生呼叫，任一層是 null 都會 AVE，所以逐層驗；讀不到就回空字串
+            /// （<c>ParseFirstInt</c> 對空字串本來就回 0，和「文字裡沒有數字」同一條既有路徑）。
+            /// </summary>
+            private string TextOf(uint nodeId) {
+                var checkbox = CheckBox;
+                if (checkbox == null) return string.Empty;
+                var node = checkbox->GetTextNodeById(nodeId);
+                if (node == null) return string.Empty;
+                var text = node->AtkResNode.GetAsAtkTextNode();
+                return text == null ? string.Empty : text->NodeText.ToString();
+            }
         }
     }
 

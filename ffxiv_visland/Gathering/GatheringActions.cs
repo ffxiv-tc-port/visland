@@ -130,7 +130,11 @@ internal class GatheringActions {
 
         Actions actions = Player.Job == GatherRouteDB.ClassJobMiner ? new MINActions() : new BTNActions();
 
-        if (!item.IsEnabled && CanUse(actions.Luck))
+        // 🔴 這是否定式判斷，不能寫成 `!item.IsEnabled`：IsEnabled 讀不到時回 false，取反後
+        // 會把「不知道」當成「已確認不能採」而去放幸運女神。用三態版本並快取成區域變數
+        // （順便消掉「讀兩次可能拿到不同值」的 TOCTOU），只有**確認為停用**時才走這條。
+        var itemEnabled = item.IsEnabledOrUnknown;
+        if (itemEnabled == false && CanUse(actions.Luck))
             return actions.Luck.id;
 
         if (ItemIsCrystal(item.ItemID)) {
