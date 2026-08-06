@@ -14,16 +14,14 @@
         "resolved": "1.2.25",
         "contentHash": "xCXiw7BCxHJ8pF6wPepRUddlh2dlQlbr81gXA72hdk4FLHkKXas7EH/n+fk5UCA/YfMqG1Z6XaPiUjDbUNBUzg=="
       },
-      "ECommons": {
-        "type": "Transitive",
-        "resolved": "3.0.1.5",
-        "contentHash": "dUbgHV16y3nq/PgEg244IpBAuP0FQfrBFyrlNDfSkeNrB7Ze7WqOneGP+Nuorr1hLv0p2E2nyrNvFp8mJuKDWQ=="
-      },
       "autoretainerapi": {
         "type": "Project",
         "dependencies": {
           "ECommons": "[3.0.1.5, )"
         }
+      },
+      "ecommons": {
+        "type": "Project"
       }
     }
   }

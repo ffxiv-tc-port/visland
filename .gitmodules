@@ -1,3 +1,6 @@
 [submodule "AutoRetainerAPI"]
 	path = AutoRetainerAPI
 	url = https://github.com/ffxiv-tc-port/AutoRetainerAPI
+[submodule "ECommons"]
+	path = ECommons
+	url = https://github.com/ffxiv-tc-port/ECommons.git
