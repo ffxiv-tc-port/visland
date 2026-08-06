@@ -89,6 +89,13 @@ unsafe class WorkshopWindow : UIAttachedWindow {
             _config.NotifyModified();
         ImGui.TextWrapped("The Overseas Casuals archive only covers 5 production days per season. The game itself allows crafting on all 7 (rest days are a rule of the native UI, not of the game). When enabled, the remaining cycles are solved locally from the game's own popularity and supply data, counting what the archive days already produce so the same items are not picked twice.".Loc());
 
+        using (ImRaii.Disabled(!_config.FillEmptyDays || _config.FavourMode == FavourMode.None)) {
+            if (ImGui.Checkbox("Put requests on the earliest cycles".Loc(), ref _config.FavoursEarliestCycles))
+                _config.NotifyModified();
+        }
+        ImGui.TextWrapped("Requests are placed from cycle 1 onwards instead of only on the cycles the archive covers. Needs \"Fill the cycles the archive leaves empty\" and a favour mode other than None - the archive starts at cycle 2, so without the filled cycles there is no earlier day to use. In the min-max modes this replaces the value-based day ordering with plain earliest-first.".Loc());
+        ImGui.TextWrapped("The game gives you the whole week to fill a request, so this does not earn more; it buys margin and shows the cost on the Schedule tab.".Loc());
+
         ImGui.Separator();
         ImGui.TextUnformatted("Season alignment".Loc());
         var offset = _config.SeasonOffset;

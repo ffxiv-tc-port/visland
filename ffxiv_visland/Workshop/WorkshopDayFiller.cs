@@ -162,6 +162,72 @@ public static unsafe class WorkshopDayFiller {
         return result;
     }
 
+    // 一整週排程在「同一把尺」下的相對價值,用途是把兩份排程放在一起比(例如「有放請求」vs「沒放請求」)。
+    // 與 Fill 的評分不同的地方:這裡**逐生產日累加**市場需求,所以先生產的享有較高的需求倍率 ——
+    // 「排在哪一天」本身就會影響分數,而這正是要量的東西。
+    // ⚠️ 一格算 1 次產量(與 Fill 的計法一致)。主題連結的 2 倍效率其實會產出 2 份、因而多吃一級需求;
+    //    兩邊用的是同一個近似,所以差值仍然可以直接比,絕對值不要當成貝殼幣。
+    // ⚠️ 工房等級加成(MJICraftworksRankRatio)與熱度同樣沒有納入 —— 對所有候選是同一個乘數。
+    public sealed class WeekScore {
+        public bool Valid;
+        public string? SkipReason;          // 非 null = 算不出來,呼叫端要畫「?」不要畫 0
+        public float Total;
+        public readonly Dictionary<int, float> PerCycle = [];
+    }
+
+    public static WeekScore ScoreWeek(WorkshopSolver.Recs recs, bool nextWeek, ExcelSheet<MJICraftworksObject> sheet) {
+        var score = new WeekScore();
+        var mji = MJIManager.Instance();
+        if (mji == null) {
+            score.SkipReason = "island data not available";
+            return score;
+        }
+        if (mji->DemandDirty) {
+            score.SkipReason = "demand/popularity data not fetched yet";
+            return score;
+        }
+        var maxWorkshops = WorkshopUtils.GetMaxWorkshops();
+        if (maxWorkshops <= 0) {
+            score.SkipReason = "no workshops built";
+            return score;
+        }
+
+        var popularity = new WorkshopSolver.Popularity();
+        popularity.Set(nextWeek ? mji->NextPopularity : mji->CurrentPopularity);
+        var supplyRatios = ReadSupplyRatios(out var craftsPerStep);
+
+        var maxId = 0u;
+        foreach (var row in sheet)
+            maxId = Math.Max(maxId, row.RowId);
+        var counts = new int[maxId + 1];
+        var baseBucket = new int[maxId + 1];
+        for (var i = 0u; i <= maxId; ++i)
+            baseBucket[i] = i < 91 ? (int)mji->GetSupplyForCraftwork(i) : 2;
+
+        foreach (var (cycle, day) in recs.Enumerate()) {
+            float dayTotal = 0;
+            foreach (var (_, w) in day.Enumerate(maxWorkshops)) {
+                MJICraftworksObject? prev = null;
+                foreach (var slot in w.Slots) {
+                    if (!sheet.TryGetRow(slot.CraftObjectId, out var row))
+                        continue;
+                    var eff = prev != null && WorkshopSolver.IsLinked(prev.Value, row) ? 2f : 1f;
+                    var supply = slot.CraftObjectId < counts.Length
+                        ? SupplyMultiplier(slot.CraftObjectId, counts, baseBucket, supplyRatios, craftsPerStep)
+                        : 1f;
+                    dayTotal += row.Value * popularity.Multiplier(row.RowId) * supply * eff;
+                    if (slot.CraftObjectId < counts.Length)
+                        counts[slot.CraftObjectId]++;
+                    prev = row;
+                }
+            }
+            score.PerCycle[cycle] = dayTotal;
+            score.Total += dayTotal;
+        }
+        score.Valid = true;
+        return score;
+    }
+
     private static Craft[] BuildCatalog(ExcelSheet<MJICraftworksObject> sheet, byte islandRank) {
         var list = new List<Craft>();
         foreach (var row in sheet) {

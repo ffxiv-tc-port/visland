@@ -20,7 +20,12 @@ public enum FavourMode {
 public static class FavourIntegration {
     public static readonly int[] FavourTargets = [8, 6, 8]; // 4h / 6h / 8h
 
-    public static WorkshopSolver.Recs Apply(WorkshopSolver.Recs baseRecs, FavourMode mode, WorkshopSolver.FavourState favours, ExcelSheet<MJICraftworksObject> sheet, IEnumerable<int>? ocRestCycles = null) {
+    // earliestFirst = 盡量把請求排在最早的生產日。
+    //   ReplaceWorkshop4 本來就是照生產日由小到大放,所以這個旗標對它沒有作用 ——
+    //   讓它真的往前的關鍵是**呼叫端先把空的生產日補出來**,days 裡才會有 C1。
+    //   MinMax 系列本來是照「當日估計價值由低到高」放(犧牲最不值錢的一天),
+    //   開了這個旗標會改成照生產日由小到大 —— 這是刻意用「最早」換掉「最便宜」。
+    public static WorkshopSolver.Recs Apply(WorkshopSolver.Recs baseRecs, FavourMode mode, WorkshopSolver.FavourState favours, ExcelSheet<MJICraftworksObject> sheet, IEnumerable<int>? ocRestCycles = null, bool earliestFirst = false) {
         if (mode == FavourMode.None)
             return Clone(baseRecs);
 
@@ -41,6 +46,11 @@ public static class FavourIntegration {
                 var mainCopies = Math.Min(3, 1 + Math.Max(0, 4 - Math.Max(day.Workshops.Count, 1)));
                 for (var i = 0; i < mainCopies; ++i)
                     CreditWorkshop(day.Workshops[0], favours.CraftObjectIds, credited, sheet);
+                // 中間那幾份排程(既不是會被複製的第一份、也不是等一下要被取代的最後一份)照樣會生產。
+                // 封存排程一天最多 2 份,所以這個迴圈在既有路徑上一次都不會跑;
+                // 但補出來的生產日一天有 maxWorkshops 份,不算它們會低估已完成數、白白多排請求日。
+                for (var i = 1; i < day.Workshops.Count - 1; ++i)
+                    CreditWorkshop(day.Workshops[i], favours.CraftObjectIds, credited, sheet);
             }
         }
         else {
@@ -69,7 +79,7 @@ public static class FavourIntegration {
         return mode switch {
             FavourMode.ReplaceWorkshop4 => PlaceOnWorkshop4(days, favourDays),
             FavourMode.MinMax or FavourMode.MinMaxFreeRestDay
-                => PlaceMinMax(days, favourDays, favours.Popularity, sheet, freeRestCycle),
+                => PlaceMinMax(days, favourDays, favours.Popularity, sheet, freeRestCycle, earliestFirst),
             _ => ToRecs(days),
         };
     }
@@ -81,7 +91,11 @@ public static class FavourIntegration {
                 break;
             var day = days[cycle];
             EnsureWorkshopSlots(day, 2);
-            day.Workshops[1] = CloneWorkshop(favourDays[fi++]);
+            // 取代**最後**一份排程,也就是這個模式名字裡的「4 號工坊」。
+            // 封存的生產日一天最多 2 份排程,此時 [^1] 就是 [1],與舊行為逐字相同;
+            // 補出來的生產日一天有 maxWorkshops 份,寫死 [1] 會打掉中間那份、把最後一份留著,
+            // 那既不是「4 號工坊」也會多犧牲一份較好的排程。
+            day.Workshops[^1] = CloneWorkshop(favourDays[fi++]);
         }
 
         if (fi < favourDays.Count)
@@ -89,8 +103,14 @@ public static class FavourIntegration {
         return ToRecs(days);
     }
 
-    private static WorkshopSolver.Recs PlaceMinMax(Dictionary<int, WorkshopSolver.DayRec> days, List<WorkshopSolver.WorkshopRec> favourDays, WorkshopSolver.Popularity popularity, ExcelSheet<MJICraftworksObject> sheet, int freeRestCycle) {
+    private static WorkshopSolver.Recs PlaceMinMax(Dictionary<int, WorkshopSolver.DayRec> days, List<WorkshopSolver.WorkshopRec> favourDays, WorkshopSolver.Popularity popularity, ExcelSheet<MJICraftworksObject> sheet, int freeRestCycle, bool earliestFirst) {
         var remaining = new Queue<WorkshopSolver.WorkshopRec>(favourDays.Select(CloneWorkshop));
+
+        // 放置順序:預設「當日估計價值由低到高」(犧牲最不值錢的一天);
+        // earliestFirst 時改成「生產日由小到大」—— 刻意用「最早」換掉「最便宜」。
+        List<int> Order() => earliestFirst
+            ? [.. days.Keys.OrderBy(c => c)]
+            : [.. days.Keys.OrderBy(c => EstimateDayValue(days[c], popularity, sheet))];
 
         // Freed rest day: dump as many favour workshops as possible.
         if (freeRestCycle != 0 && days.TryGetValue(freeRestCycle, out var freeDay)) {
@@ -100,7 +120,7 @@ public static class FavourIntegration {
         }
 
         // Workshop 4 on other days, lowest estimated value first.
-        foreach (var cycle in days.Keys.OrderBy(c => EstimateDayValue(days[c], popularity, sheet))) {
+        foreach (var cycle in Order()) {
             if (remaining.Count == 0)
                 break;
             if (cycle == freeRestCycle)
@@ -112,7 +132,7 @@ public static class FavourIntegration {
 
         // Grow to 3 then 4 distinct workshop schedules on low-value days (keeps main + prior overrides).
         foreach (var targetCount in new[] { 3, 4 }) {
-            foreach (var cycle in days.Keys.OrderBy(c => EstimateDayValue(days[c], popularity, sheet))) {
+            foreach (var cycle in Order()) {
                 if (remaining.Count == 0)
                     break;
                 if (cycle == freeRestCycle)
@@ -126,7 +146,7 @@ public static class FavourIntegration {
         }
 
         // Last resort: whole-day favour overwrite on lowest-value days.
-        foreach (var cycle in days.Keys.OrderBy(c => EstimateDayValue(days[c], popularity, sheet))) {
+        foreach (var cycle in Order()) {
             if (remaining.Count == 0)
                 break;
             if (cycle == freeRestCycle)

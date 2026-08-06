@@ -31,6 +31,7 @@ public unsafe class WorkshopOCImport {
     private int _loadedSeason;
     private bool _loadedNextWeek;
     private WorkshopDayFiller.Report? _fillReport;
+    private FavourPlacementReport? _favourReport;
 
     public WorkshopOCImport() {
         _config = Service.Config.Get<WorkshopConfig>();
@@ -105,6 +106,7 @@ public unsafe class WorkshopOCImport {
         if (_loadedSeason != 0)
             ImGui.TextUnformatted("Loaded season ??".Loc(_loadedSeason) + $" ({(_loadedNextWeek ? "next week" : "this week").Loc()})");
         DrawFillReport();
+        DrawFavourReport();
 
         ImGui.Separator();
 
@@ -174,6 +176,9 @@ public unsafe class WorkshopOCImport {
         try {
             Recommendations = _parser.ParseRecs(ImGui.GetClipboardText());
             _loadedSeason = 0;
+            // 剪貼簿匯入不會跑補天/請求整合,舊的報告留著就變成在描述一份已經不存在的排程。
+            _fillReport = null;
+            _favourReport = null;
         }
         catch (Exception ex) {
             ReportError("Error: ??".Loc(ex.Message), silent);
@@ -205,29 +210,60 @@ public unsafe class WorkshopOCImport {
 
     private void ApplySeason(bool nextWeek, WorkshopSolver.FavourState? favours) {
         var season = _seasonDB.Shift(_seasonDB.CurrentSeason(nextWeek), _config.SeasonOffset);
-        var baseRecs = _seasonDB.BuildRecs(season);
-        Recommendations = favours == null || _config.FavourMode == FavourMode.None
-            ? baseRecs
-            : FavourIntegration.Apply(baseRecs, _config.FavourMode, favours.Value, _craftSheet, _seasonDB.RestCycles(season));
+        var archiveRecs = _seasonDB.BuildRecs(season);
+        var applyFavours = favours != null && _config.FavourMode != FavourMode.None;
 
-        // 補封存沒給的生產日。刻意放在請求整合**之後**:請求模式(尤其 MinMaxFreeRestDay)
-        // 自己會動封存的休息日,先跑它才知道最後到底哪幾天還是空的。
+        // 「請求盡量排最早」必須先補天再放請求 —— 封存只有 C2~C7,不先補出 C1 與被釋放的休息日,
+        // FavourIntegration 的 days 裡根本沒有更早的日子可以放。
+        var earliestFirst = applyFavours && _config.FillEmptyDays && _config.FavoursEarliestCycles;
+
         _fillReport = null;
-        if (_config.FillEmptyDays) {
+        _favourReport = null;
+
+        // 對照組 = 「同樣的補天設定、但完全不放請求產品」的排程;請求的代價就是它跟最後結果的差。
+        // earliestFirst 時它同時也是請求整合的輸入,所以不會多算一次。
+        var withoutFavours = archiveRecs;
+        if (_config.FillEmptyDays && (earliestFirst || applyFavours)) {
+            withoutFavours = WorkshopDayFiller.Fill(archiveRecs, nextWeek, _craftSheet, out var preFill);
+            if (earliestFirst)
+                LogFillReport(preFill);
+        }
+
+        Recommendations = applyFavours
+            ? FavourIntegration.Apply(earliestFirst ? withoutFavours : archiveRecs, _config.FavourMode, favours!.Value, _craftSheet, _seasonDB.RestCycles(season), earliestFirst)
+            : archiveRecs;
+
+        // 補封存沒給的生產日。預設順序刻意放在請求整合**之後**:請求模式(尤其 MinMaxFreeRestDay)
+        // 自己會動封存的休息日,先跑它才知道最後到底哪幾天還是空的。
+        // earliestFirst 時順序相反(上面已經補過),代價是補天解算器看不到請求會佔掉哪一格。
+        if (_config.FillEmptyDays && !earliestFirst) {
             Recommendations = WorkshopDayFiller.Fill(Recommendations, nextWeek, _craftSheet, out var report);
-            _fillReport = report;
-            if (report.Filled)
-                Service.Log.Information($"[fill-empty-days] filled {WorkshopDayFiller.FormatCycles(report.FilledCycles)} across {report.Workshops} workshop(s): " +
-                    $"added value {report.AddedValue:F0} vs archive average {report.ArchiveValuePerDay:F0}/day over {report.ArchiveDays} day(s) " +
-                    $"= {(report.ArchiveValuePerDay > 0 ? report.AddedValue / report.ArchiveValuePerDay : 0):F2} archive-days worth");
-            else
-                Service.Log.Information($"[fill-empty-days] nothing added: {report.SkipReason}");
+            LogFillReport(report);
+        }
+
+        if (applyFavours) {
+            _favourReport = FavourPlacementReport.Build(
+                Recommendations, favours!.Value, _craftSheet, WorkshopUtils.GetMaxWorkshops(),
+                WorkshopDayFiller.ScoreWeek(withoutFavours, nextWeek, _craftSheet),
+                WorkshopDayFiller.ScoreWeek(Recommendations, nextWeek, _craftSheet),
+                earliestFirst);
+            Service.Log.Information(_favourReport.LogLine(_config.FavourMode));
         }
 
         _loadedSeason = season;
         _loadedNextWeek = nextWeek;
         Service.Log.Info($"Loaded workshop season {season} (favour mode {_config.FavourMode})");
         WorkshopSeasonDiagnostics.Log(WorkshopSeasonDiagnostics.Capture(_seasonDB, _config.SeasonOffset), _seasonDB);
+    }
+
+    private void LogFillReport(WorkshopDayFiller.Report report) {
+        _fillReport = report;
+        if (report.Filled)
+            Service.Log.Information($"[fill-empty-days] filled {WorkshopDayFiller.FormatCycles(report.FilledCycles)} across {report.Workshops} workshop(s): " +
+                $"added value {report.AddedValue:F0} vs archive average {report.ArchiveValuePerDay:F0}/day over {report.ArchiveDays} day(s) " +
+                $"= {(report.ArchiveValuePerDay > 0 ? report.AddedValue / report.ArchiveValuePerDay : 0):F2} archive-days worth");
+        else
+            Service.Log.Information($"[fill-empty-days] nothing added: {report.SkipReason}");
     }
 
     // 季號對位:算出來的季號 vs 遊戲實際的受歡迎度列號。
@@ -265,6 +301,45 @@ public unsafe class WorkshopOCImport {
             "These cycles are solved locally from the game's own popularity and supply data, after accounting for what the archive days already produce.".Loc() + "\n" +
             "Relative value (not actual cowries): added ?? vs archive average ?? per day over ?? day(s), ?? workshop(s).".Loc(
                 r.AddedValue.ToString("F0"), r.ArchiveValuePerDay.ToString("F0"), r.ArchiveDays, r.Workshops));
+    }
+
+    // 請求排在哪幾天、佔多少產能、代價多少。
+    // 🔑 「請求排在哪幾天」與「有沒有全部達標」是要隨時掃視的 -> 放列上;
+    //    逐日進度與絕對價值是起疑才查的 -> 放 tooltip。
+    // ⚠️ 價值算不出來時列上畫「?」不畫 0 —— 把「不知道」畫成 0 會直接誤導。
+    private void DrawFavourReport() {
+        if (_favourReport is not { } r)
+            return;
+        if (!r.Valid) {
+            ImGui.TextColored(new Vector4(0.65f, 0.65f, 0.65f, 1f), "Request placement not analysed: ??".Loc(r.SkipReason ?? "?"));
+            return;
+        }
+        if (r.Cycles.Count == 0) {
+            ImGui.TextColored(new Vector4(1f, 0.7f, 0.2f, 1f), "No request items anywhere in this schedule".Loc());
+            return;
+        }
+
+        if (r.AllMet)
+            ImGui.TextColored(new Vector4(0.5f, 0.9f, 0.5f, 1f),
+                "Requests on ?? - ??/?? workshop-days - all met by ?? - week value ??".Loc(
+                    r.CyclesText, r.OccupiedWorkshopDays, r.TotalWorkshopDays, r.CompleteByText, r.LossText));
+        else
+            ImGui.TextColored(new Vector4(1f, 0.7f, 0.2f, 1f),
+                "Requests on ?? - ??/?? workshop-days - NOT all met this week - week value ??".Loc(
+                    r.CyclesText, r.OccupiedWorkshopDays, r.TotalWorkshopDays, r.LossText));
+
+        var value = r.ValueKnown
+            ? "Relative value (not actual cowries): ?? without requests -> ?? with them.".Loc(r.ValueWithout.ToString("F0"), r.ValueWith.ToString("F0"))
+            : "Week value could not be computed: ??".Loc(r.ValueSkipReason ?? "?");
+        ImGuiComponents.HelpMarker(
+            "Cumulative request output after each cycle (4h / 6h / 8h): ??".Loc(r.ProgressText()) + "\n" +
+            "Totals for the week: ??".Loc(string.Join(", ", r.Total.Select((v, i) => $"{v}/{r.Targets[i]}"))) + "\n" +
+            value + "\n" +
+            "Moving requests earlier does not add production - it changes which workshop-day they take. The cost is the difference between the plan they replace and the request plan.".Loc() + "\n" +
+            "The game gives the whole week to fill a request, so an early placement buys margin (material shortages, a disturbed schedule), not extra reward.".Loc() + "\n" +
+            (r.EarliestFirst
+                ? "Earliest-cycle placement is ON.".Loc()
+                : "Earliest-cycle placement is OFF - requests only use the cycles the archive covers.".Loc()));
     }
 
     private void DrawCycleRecommendations() {
