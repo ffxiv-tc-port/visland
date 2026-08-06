@@ -89,24 +89,56 @@ public unsafe class OverrideMovement : IDisposable {
         Service.GameConfig.UiControlChanged -= OnConfigChanged;
     }
 
+    // fail-closed: a detour is a managed function the *native* code calls directly, so a managed
+    // exception escaping it unwinds through native frames that have no handler for it. Everything we
+    // add on top of Original() therefore runs inside a try, and the degraded behaviour is "don't
+    // override" - Original has already run, so the player's own movement input passes through intact.
+    // NOTE: this does NOT protect against AccessViolationException (corrupted-state, uncatchable in
+    // .NET Core). What it catches is managed exceptions - most importantly the
+    // InvalidOperationException that ClientStructs' [StaticAddress]/[MemberFunction] members throw
+    // when their signature stops resolving after a game patch.
+    private long _detourErrors;
+    private DateTime _lastDetourErrorLog = DateTime.MinValue;
+
+    private void OnDetourError(Exception ex) {
+        ++_detourErrors;
+        // this runs per frame - never log unthrottled. Information (not Debug) because reporting
+        // users run at LogLevel 2.
+        var now = DateTime.UtcNow;
+        if (now - _lastDetourErrorLog < TimeSpan.FromSeconds(30))
+            return;
+        _lastDetourErrorLog = now;
+        Service.Log.Information($"OverrideMovement: movement override threw, leaving the game's own movement input alone (total {_detourErrors}): {ex}");
+    }
+
     private void RMIWalkDetour(void* self, float* sumLeft, float* sumForward, float* sumTurnLeft, byte* haveBackwardOrStrafe, byte* a6, byte bAdditiveUnk) {
         // only hooked when both IsInputEnabled delegates resolved, see ctor
         _rmiWalkHook!.Original(self, sumLeft, sumForward, sumTurnLeft, haveBackwardOrStrafe, a6, bAdditiveUnk);
-        var movementAllowed = bAdditiveUnk == 0 && _rmiWalkIsInputEnabled1!(self) && _rmiWalkIsInputEnabled2!(self);
-        if (movementAllowed && (IgnoreUserInput || *sumLeft == 0 && *sumForward == 0) && DirectionToDestination(false) is var relDir && relDir != null) {
-            var dir = relDir.Value.h.ToDirection();
-            *sumLeft = dir.X;
-            *sumForward = dir.Y;
+        try {
+            var movementAllowed = bAdditiveUnk == 0 && _rmiWalkIsInputEnabled1!(self) && _rmiWalkIsInputEnabled2!(self);
+            if (movementAllowed && (IgnoreUserInput || *sumLeft == 0 && *sumForward == 0) && DirectionToDestination(false) is var relDir && relDir != null) {
+                var dir = relDir.Value.h.ToDirection();
+                *sumLeft = dir.X;
+                *sumForward = dir.Y;
+            }
+        }
+        catch (Exception ex) {
+            OnDetourError(ex);
         }
     }
 
     private void RMIFlyDetour(void* self, PlayerMoveControllerFlyInput* result) {
         _rmiFlyHook!.Original(self, result);
-        if ((IgnoreUserInput || result->Forward == 0 && result->Left == 0 && result->Up == 0) && DirectionToDestination(true) is var relDir && relDir != null) {
-            var dir = relDir.Value.h.ToDirection();
-            result->Forward = dir.Y;
-            result->Left = dir.X;
-            result->Up = relDir.Value.v.Rad;
+        try {
+            if ((IgnoreUserInput || result->Forward == 0 && result->Left == 0 && result->Up == 0) && DirectionToDestination(true) is var relDir && relDir != null) {
+                var dir = relDir.Value.h.ToDirection();
+                result->Forward = dir.Y;
+                result->Left = dir.X;
+                result->Up = relDir.Value.v.Rad;
+            }
+        }
+        catch (Exception ex) {
+            OnDetourError(ex);
         }
     }
 
@@ -122,10 +154,31 @@ public unsafe class OverrideMovement : IDisposable {
         var dirH = Angle.FromDirectionXZ(dist);
         var dirV = allowVertical ? Angle.FromDirection(new(dist.Y, new Vector2(dist.X, dist.Z).Length())) : default;
 
-        var refDir = _legacyMode
-            ? CameraManager.Instance()->GetActiveCamera()->DirH.Radians() + 180.Degrees()
+        var activeCamera = _legacyMode ? TryGetActiveCamera() : null;
+        var refDir = activeCamera != null
+            ? activeCamera->DirH.Radians() + 180.Degrees()
             : player.Rotation.Radians();
         return (dirH - refDir, dirV);
+    }
+
+    // CameraManager.GetActiveCamera() is a ClientStructs [MemberFunction], and CameraManager.Instance()
+    // just forwards to Control.Instance(), a [StaticAddress]. When either signature stops resolving
+    // they *throw* InvalidOperationException (InteropGenerator's ThrowHelper.ThrowNullAddress) instead
+    // of returning null - so a null check on Instance() was never a guard against a broken signature.
+    // This path is reached from the RMIWalk/RMIFly detours, i.e. it would be a managed exception
+    // thrown inside a detour on every single frame. Check the resolved addresses up front and skip the
+    // whole camera-reference path instead; legacy mode then falls back to the character's own facing
+    // (steering is wrong-ish rather than fatal). The GetActiveCamera() result is null-checked too - it
+    // was dereferenced unguarded before.
+    private static bool CameraApiResolved
+        => FFXIVClientStructs.FFXIV.Client.Game.Control.Control.Addresses.Instance.Value != 0
+        && CameraManager.Addresses.GetActiveCamera.Value != 0;
+
+    private static FFXIVClientStructs.FFXIV.Client.Game.Camera* TryGetActiveCamera() {
+        if (!CameraApiResolved)
+            return null;
+        var mgr = CameraManager.Instance();
+        return mgr != null ? mgr->GetActiveCamera() : null;
     }
 
     private void OnConfigChanged(object? sender, ConfigChangeEvent evt) => UpdateLegacyMode();
