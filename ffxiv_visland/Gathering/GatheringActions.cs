@@ -168,10 +168,17 @@ internal class GatheringActions {
         if (CanUse(actions.Tidings))
             return actions.Tidings.id;
 
-        if (am.CurrentIntegrity < am.TotalIntegrity && CanUse(actions.RestoreIntegrity))
-            return actions.RestoreIntegrity.id;
-        if (am.CurrentIntegrity < am.TotalIntegrity && CanUse(actions.WiseToTheWorld))
-            return actions.WiseToTheWorld.id;
+        // 🔴 這是比大小，不能用會把「讀不到」壓成 0 的 CurrentIntegrity/TotalIntegrity：
+        // 只要 Current 讀不到而 Total 讀得到，0 < N 恆真，就會白放回復完整度／慧眼識金。
+        // 兩個都讀得到才判斷；讀不到就這一幀不動作（下一幀重試）。順帶把兩次原生讀取
+        // 各收斂成一次，消掉「同一個判斷式讀兩次拿到不同值」的 TOCTOU。
+        if (am.CurrentIntegrityOrUnknown is { } curIntegrity && am.TotalIntegrityOrUnknown is { } totIntegrity
+            && curIntegrity < totIntegrity) {
+            if (CanUse(actions.RestoreIntegrity))
+                return actions.RestoreIntegrity.id;
+            if (CanUse(actions.WiseToTheWorld))
+                return actions.WiseToTheWorld.id;
+        }
 
         return 0;
     }
@@ -188,16 +195,27 @@ internal class GatheringActions {
     public static unsafe uint GetNextBestAction(GatheringAddon.GatheringMasterpiece am) {
         Actions actions = Player.Job == GatherRouteDB.ClassJobMiner ? new MINActions() : new BTNActions();
 
+        // 🔴 底下整段都是拿 AtkValues 的數值互相比大小。AtkValues 讀不到（陣列還沒配好或
+        // AtkValuesCount 還沒長到 63）時若一律當成 0，`0 + 0 >= 0` 恆真 —— 會直接送出「精確採集」。
+        // 所以先把每個要用到的值一次取出來，任何一個是「不知道」就這一幀不動作（下一幀重試），
+        // 順帶讓後面的算式只讀一次原生記憶體（原本同一個屬性會被重複解參考三次）。
+        if (am.CurrentCollectabilityOrUnknown is not { } currentCollectability ||
+            am.MaxCollectabilityOrUnknown is not { } maxCollectability ||
+            am.CurrentIntegrityOrUnknown is not { } currentIntegrity ||
+            am.MeticulousPowerOrUnknown is not { } meticulousPower ||
+            am.ScourPowerOrUnknown is not { } scourPower)
+            return 0;
+
         if (ActionManager.Instance()->GetActionStatus(ActionType.Action, actions.Scour.id) == 0 ||
             ActionManager.Instance()->GetActionStatus(ActionType.Action, actions.Collect) == 0) {
             var scrutiny = HasScrutiny();
-            if (am.CurrentCollectability == 1000 || am.CurrentIntegrity == 1)
+            if (currentCollectability == 1000 || currentIntegrity == 1)
                 return actions.Collect;
 
-            if (am.CurrentCollectability + am.MeticulousPower >= am.MaxCollectability)
+            if (currentCollectability + meticulousPower >= maxCollectability)
                 return actions.Meticulous;
 
-            if (am.CurrentCollectability + am.ScourPower >= am.MaxCollectability)
+            if (currentCollectability + scourPower >= maxCollectability)
                 return actions.Scour.id;
 
             if (Player.Gp >= 200 && !scrutiny)

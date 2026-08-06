@@ -68,7 +68,8 @@ public unsafe class GatherDebug(GatherRouteExec exec) {
         }
         if (exec.GatheringAM != null) {
             Utils.DrawSection("Gathering Addon", ImGuiColors.ParsedGold);
-            ImGui.Text($"Integrity: {exec.GatheringAM.CurrentIntegrity}/{exec.GatheringAM.TotalIntegrity}");
+            // 讀不到就畫 "?"：把「不知道」畫成 0 會讓人以為完整度真的是 0。
+            ImGui.Text($"Integrity: {exec.GatheringAM.CurrentIntegrityOrUnknown?.ToString() ?? "?"}/{exec.GatheringAM.TotalIntegrityOrUnknown?.ToString() ?? "?"}");
             foreach (var gatherable in exec.GatheringAM.Items.Where(x => x.IsEnabled)) {
                 ImGui.TextV($@"[{gatherable.ItemID}] Lv{gatherable.ItemLevel} {gatherable.GatherChance}% {gatherable.ItemName} {(gatherable.IsCollectable ? SeIconChar.Collectible : string.Empty)}");
                 ImGui.SameLine();
@@ -83,8 +84,9 @@ public unsafe class GatherDebug(GatherRouteExec exec) {
         if (exec.GatheringCollectableAM != null) {
             Utils.DrawSection("Gathering Collectable Addon", ImGuiColors.ParsedGold);
             ImGui.Text($"Item: [{exec.GatheringCollectableAM.ItemID}] {exec.GatheringCollectableAM.ItemName}");
-            ImGui.Text($"Integrity: {exec.GatheringCollectableAM.CurrentIntegrity}/{exec.GatheringCollectableAM.TotalIntegrity}");
-            ImGui.Text($"Collectability: {exec.GatheringCollectableAM.CurrentCollectability}/{exec.GatheringCollectableAM.MaxCollectability}");
+            // 同上：AtkValues 讀不到時畫 "?"，不要畫成 0。
+            ImGui.Text($"Integrity: {exec.GatheringCollectableAM.CurrentIntegrityOrUnknown?.ToString() ?? "?"}/{exec.GatheringCollectableAM.TotalIntegrityOrUnknown?.ToString() ?? "?"}");
+            ImGui.Text($"Collectability: {exec.GatheringCollectableAM.CurrentCollectabilityOrUnknown?.ToString() ?? "?"}/{exec.GatheringCollectableAM.MaxCollectabilityOrUnknown?.ToString() ?? "?"}");
             ImGui.Text($"Scour: {exec.GatheringCollectableAM.ScourPower} Brazen: {exec.GatheringCollectableAM.BrazenPowerMin}/{exec.GatheringCollectableAM.BrazenPowerMax} Meticulous: {exec.GatheringCollectableAM.MeticulousPower}");
         }
     }
