@@ -113,7 +113,7 @@ public unsafe class OverrideMovement : IDisposable {
 
     private void RMIWalkDetour(void* self, float* sumLeft, float* sumForward, float* sumTurnLeft, byte* haveBackwardOrStrafe, byte* a6, byte bAdditiveUnk) {
         // only hooked when both IsInputEnabled delegates resolved, see ctor
-        _rmiWalkHook!.Original(self, sumLeft, sumForward, sumTurnLeft, haveBackwardOrStrafe, a6, bAdditiveUnk);
+        _rmiWalkHook!.OriginalDisposeSafe(self, sumLeft, sumForward, sumTurnLeft, haveBackwardOrStrafe, a6, bAdditiveUnk);
         try {
             var movementAllowed = bAdditiveUnk == 0 && _rmiWalkIsInputEnabled1!(self) && _rmiWalkIsInputEnabled2!(self);
             if (movementAllowed && (IgnoreUserInput || *sumLeft == 0 && *sumForward == 0) && DirectionToDestination(false) is var relDir && relDir != null) {
@@ -128,7 +128,7 @@ public unsafe class OverrideMovement : IDisposable {
     }
 
     private void RMIFlyDetour(void* self, PlayerMoveControllerFlyInput* result) {
-        _rmiFlyHook!.Original(self, result);
+        _rmiFlyHook!.OriginalDisposeSafe(self, result);
         try {
             if ((IgnoreUserInput || result->Forward == 0 && result->Left == 0 && result->Up == 0) && DirectionToDestination(true) is var relDir && relDir != null) {
                 var dir = relDir.Value.h.ToDirection();
