@@ -60,7 +60,11 @@ public sealed class MaterialLedgerTab {
             using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
                 ImGui.TextUnformatted("Pouch counts are stale (zoning, or island data not loaded yet).".Loc());
         }
-        if (_ledger.DemandKnown && !_ledger.IncomingKnown) {
+        if (!_ledger.OnIsland) {
+            using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
+                ImGui.TextUnformatted("Incoming amounts (granary, farm, pasture) can only be read while you are on the island.".Loc());
+        }
+        else if (!_ledger.IncomingKnown) {
             using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
                 ImGui.TextUnformatted("Some incoming sources could not be read, so gaps may be overstated.".Loc());
         }

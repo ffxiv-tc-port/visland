@@ -42,6 +42,7 @@ public sealed unsafe class MaterialLedger {
     public bool FarmKnown;
     public bool PastureKnown;
     public bool StockFrozen;           // 切區中 / 讀到全 0,保留上一次的快照
+    public bool OnIsland;              // 在途數量只有站在島上才讀得到
     public byte DemandCycle;
     public int IslandRank;
 
@@ -68,6 +69,16 @@ public sealed unsafe class MaterialLedger {
         }
         if (Rows.Length == 0)
             return;
+
+        // 🔴 這一頁掛在主視窗上,標題畫面/角色選擇時也可能開著。
+        //    Utils.NumItems 是 InventoryManager.Instance()->GetInventoryItemCount(...) 且**沒有 null 檢查**
+        //    (既有呼叫端全是 UIAttachedWindow,只在遊戲內畫,所以踩不到)。
+        //    未登入時那個靜態指標是 null,呼叫下去就是 this = null 的原生函式 —— AVE,try/catch 攔不到。
+        if (!Service.ClientState.IsLoggedIn) {
+            IslandDataAvailable = DemandKnown = StockKnown = false;
+            GranaryKnown = FarmKnown = PastureKnown = false;
+            return;
+        }
 
         var mji = MJIManager.Instance();
         IslandDataAvailable = mji != null;
@@ -194,11 +205,26 @@ public sealed unsafe class MaterialLedger {
         foreach (var r in Rows)
             r.Granary = r.Farm = r.Pasture = 0;
 
+        // 🔴 GranariesState / FarmState / PastureHandler 三個都是**島上才存在的物件**
+        //    (PastureHandler 甚至是 EventHandler 衍生型別,離島時很可能是懸空指標)。
+        //    既有的 Farm/Pasture 視窗是 UIAttachedWindow,只有原生介面開著才讀,所以踩不到;
+        //    這一頁隨時都畫得到,不能沿用同樣的假設。
+        //    「這個指標離島後還有效嗎」離線證不了 ⇒ 不猜:不在島上就一律當作讀不到(畫 ?),
+        //    而不是賭它是 null。切區中同理。
+        OnIsland = mji->IsPlayerInSanctuary
+            && !Service.Condition[ConditionFlag.BetweenAreas]
+            && !Service.Condition[ConditionFlag.BetweenAreas51];
+        if (!OnIsland) {
+            GranaryKnown = FarmKnown = PastureKnown = false;
+            return;
+        }
+
         // --- 屯貨倉庫(遠征):精確到材料 ---
         var granaries = mji->GranariesState;
         GranaryKnown = IsPlausible(granaries);
         if (GranaryKnown) {
-            for (var gi = 0; gi < MJIGranariesState.MaxGranaries; ++gi) {
+            var numGranaries = Math.Min(MJIGranariesState.MaxGranaries, granaries->Granary.Length);
+            for (var gi = 0; gi < numGranaries; ++gi) {
                 ref var g = ref granaries->Granary[gi];
                 // 🔴 pouch 列號 0 是真材料(棕櫚葉),判有沒有東西一律看數量。
                 if (g.RareResourceCount > 0)
