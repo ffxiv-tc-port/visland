@@ -105,6 +105,14 @@ public sealed class MaterialLedgerTab {
         foreach (var row in _ledger.Rows)
             if (_ledger.GapKnown(row) && _ledger.Gap(row, _horizon) > 0)
                 _shortages.Add(row.Info.PouchId);
+        // 每幀算一次就好,不要塞進排序比較器裡(那會乘上列數與比較次數)。
+        foreach (var cov in _coverage) {
+            var n = 0;
+            foreach (var pouchId in cov.HitsByPouch.Keys)
+                if (_shortages.Contains(pouchId))
+                    ++n;
+            cov.ShortageHits = n;
+        }
 
         if (_visible.Count == 0) {
             ImGui.TextUnformatted("Nothing to show.".Loc());
@@ -167,23 +175,13 @@ public sealed class MaterialLedgerTab {
             if (cov.HitsByPouch.ContainsKey(pouchId))
                 candidates.Add(cov);
         candidates.Sort((a, b) => {
-            var sa = ShortageCount(a);
-            var sb = ShortageCount(b);
-            if (sa != sb)
-                return sb.CompareTo(sa);
+            if (a.ShortageHits != b.ShortageHits)
+                return b.ShortageHits.CompareTo(a.ShortageHits);
             var ha = a.HitsByPouch[pouchId];
             var hb = b.HitsByPouch[pouchId];
             return hb != ha ? hb.CompareTo(ha) : a.MaterialCount.CompareTo(b.MaterialCount);
         });
         return candidates;
-    }
-
-    private int ShortageCount(RouteCoverage cov) {
-        var n = 0;
-        foreach (var pouchId in cov.HitsByPouch.Keys)
-            if (_shortages.Contains(pouchId))
-                ++n;
-        return n;
     }
 
     private void DrawRouteCell(MaterialLedgerRow row) {
@@ -228,7 +226,7 @@ public sealed class MaterialLedgerTab {
             }
             sb.Append("  ").Append(cov.Route.Name).Append('\n');
             sb.Append("    ").Append("covers ?? material(s), ?? of them short - ?? waypoint(s) here".Loc(
-                cov.MaterialCount, ShortageCount(cov), cov.HitsByPouch[row.Info.PouchId])).Append('\n');
+                cov.MaterialCount, cov.ShortageHits, cov.HitsByPouch[row.Info.PouchId])).Append('\n');
             if (cov.Approximate)
                 sb.Append("    ").Append("No interaction waypoints in this route, so the match is approximate.".Loc()).Append('\n');
         }

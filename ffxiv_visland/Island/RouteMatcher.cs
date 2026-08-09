@@ -26,6 +26,10 @@ public sealed class RouteCoverage {
     public readonly Dictionary<uint, int> HitsByPouch = [];
     public bool Approximate; // 這條路線沒有互動路徑點,退而用全部路徑點比對
 
+    // 這條路線覆蓋到幾種「目前缺的」材料。由 UI 每幀重算一次填進來 ——
+    // 不要在排序比較器裡臨時算,那會變成 (列數 x log(路線數) x 材料數) 的每幀成本。
+    public int ShortageHits;
+
     public int MaterialCount => HitsByPouch.Count;
 }
 
