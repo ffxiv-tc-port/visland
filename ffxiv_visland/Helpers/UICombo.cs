@@ -11,9 +11,12 @@ using System.Reflection;
 namespace visland.Helpers;
 
 public static class UICombo {
+    // 過 .Loc():這是全 visland 所有列舉下拉的顯示字串來源,原本一律吐英文,
+    // 所以連「自動採集」「派遣策略」這些常用選單都是英文的。
+    // 沒補譯的列舉 .Loc() 會原樣回傳,因此這個改動對它們是零影響。
     public static string EnumString(Enum v) {
         var name = v.ToString();
-        return v.GetType().GetField(name)?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? name;
+        return (v.GetType().GetField(name)?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? name).Loc();
     }
 
     public static bool Enum<T>(string label, ref T v) where T : Enum {
