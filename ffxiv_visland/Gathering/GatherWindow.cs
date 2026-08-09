@@ -25,6 +25,7 @@ public class GatherWindow : Window {
     public GatherRouteDB RouteDB = null!;
     public GatherRouteExec Exec => Service.RouteExec;
     public GatherDebug _debug = null!;
+    private readonly visland.Island.MaterialLedgerTab _materials = new();
 
     private int selectedRouteIndex = -1;
     private static bool loop;
@@ -66,6 +67,9 @@ public class GatherWindow : Window {
                         a();
                     _postDraw.Clear();
                 }
+            using (var tab = ImRaii.TabItem("Material Ledger".Loc()))
+                if (tab)
+                    _materials.Draw();
             using (var tab = ImRaii.TabItem("Log".Loc()))
                 if (tab)
                     ImGui.TextUnformatted("Plugin log is available via /xllog or Dalamud log window.".Loc());

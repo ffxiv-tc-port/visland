@@ -1,0 +1,258 @@
+using Dalamud.Game.ClientState.Conditions;
+using FFXIVClientStructs.FFXIV.Client.Game.MJI;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using System;
+using visland.Helpers;
+
+namespace visland.Island;
+
+// 無人島「缺料總表」的資料層:缺口 = 需求 - 庫存 - 在途,逐 MJIItemPouch 列。
+// 純顯示,不做任何寫入或自動化。
+//
+// 三態很重要:分不出「真的是 0」與「這份資料還沒載入」的話,畫成 0 會直接誤導使用者。
+// 所以每個來源各自帶一個 *Known 旗標,拿不到就在 UI 上畫 `?`。
+public sealed class MaterialLedgerRow {
+    public MaterialInfo Info = null!;
+    public bool Unlocked;                  // 這個材料在收納袋裡是否已解鎖(採集/製作過一次)
+    public readonly int[] Demand = new int[MaterialLedger.DemandEntryCount];
+    public int Stock;
+    public int Granary;
+    public int Farm;
+    public int Pasture;
+
+    public int Incoming => Granary + Farm + Pasture;
+}
+
+public sealed unsafe class MaterialLedger {
+    public const int DemandEntryCount = 3;
+
+    // CS 的註解說 [0] = 本日、[1] = 本週、[2] = 本週+下週,**這個語意沒有實機驗證過**。
+    // 所以 P0 把三個都留著,列上用哪一個由使用者選,tooltip 三個都顯示,
+    // 另外把三個總和寫成 Information log —— 在週初/週末各看一次就能自然分辨誰是誰。
+    public const int HorizonCycle = 0;
+    public const int HorizonWeek = 1;
+    public const int HorizonTwoWeeks = 2;
+
+    public MaterialLedgerRow[] Rows = [];
+
+    public bool IslandDataAvailable;   // MJIManager 拿得到
+    public bool DemandKnown;           // AgentMJICraftSchedule 的排程資料讀過了
+    public bool StockKnown;            // 收納袋數量可信
+    public bool GranaryKnown;
+    public bool FarmKnown;
+    public bool PastureKnown;
+    public bool StockFrozen;           // 切區中 / 讀到全 0,保留上一次的快照
+    public byte DemandCycle;
+    public int IslandRank;
+
+    private long _nextRefresh;
+    private long _nextDemandLog;
+    private (int, int, int) _lastLoggedDemand = (-1, -1, -1);
+    private bool _everSawStock;
+    private bool _loggedToolMismatch;
+
+    private const int RefreshIntervalMs = 500;
+    private const int DemandLogCooldownMs = 60_000;
+
+    public void Refresh(bool force = false) {
+        var now = Environment.TickCount64;
+        if (!force && now < _nextRefresh)
+            return;
+        _nextRefresh = now + RefreshIntervalMs;
+
+        var sources = MaterialSources.All;
+        if (Rows.Length != sources.Length) {
+            Rows = new MaterialLedgerRow[sources.Length];
+            for (var i = 0; i < sources.Length; ++i)
+                Rows[i] = new MaterialLedgerRow { Info = sources[i] };
+        }
+        if (Rows.Length == 0)
+            return;
+
+        var mji = MJIManager.Instance();
+        IslandDataAvailable = mji != null;
+        if (mji == null) {
+            DemandKnown = StockKnown = GranaryKnown = FarmKnown = PastureKnown = false;
+            return;
+        }
+
+        IslandRank = mji->IslandState.CurrentRank;
+        ReadUnlocks(mji);
+        ReadDemand();
+        ReadStock(mji);
+        ReadIncoming(mji);
+    }
+
+    private void ReadUnlocks(MJIManager* mji) {
+        // IslandState.LockedPouchItems 是以 MJIItemPouch 列號直接索引的 byte 陣列(非 0 = 未解鎖)。
+        // 刻意讀欄位而不是呼叫 MJIManager.IsPouchItemLocked ——
+        // 那是 [MemberFunction],特徵碼在台服失配時是「載入照常、首次呼叫才擲例外」的靜默失敗。
+        var locked = mji->IslandState.LockedPouchItems;
+        var n = Math.Min(Rows.Length, locked.Length);
+        for (var i = 0; i < n; ++i)
+            Rows[i].Unlocked = locked[i] == 0;
+
+        if (!_loggedToolMismatch) {
+            // 一致性檢查:材料已解鎖就代表當初一定拿得到對應工具。
+            // CS 對 IslandState._unlockedKeyItems 的散文註解說 index = RowId - 1,
+            // 但它自己的 IsKeyItemUnlocked 用的是 RowId —— 兩者矛盾且我們無法離線分辨。
+            // 這裡不猜,直接拿「已解鎖的材料」當已知真值去對,不一致就記一筆 Information。
+            for (var i = 0; i < n; ++i) {
+                var g = Rows[i].Info.Gather;
+                if (g == null || g.ToolKeyItemRow == 0 || !Rows[i].Unlocked)
+                    continue;
+                if (mji->IsKeyItemUnlocked((ushort)g.ToolKeyItemRow))
+                    continue;
+                Service.Log.Information($"[Materials] key item unlock mismatch: pouch {i} '{Rows[i].Info.Name}' is unlocked but MJIKeyItem {g.ToolKeyItemRow} ('{g.ToolName}') reads locked - key item bit index is probably off by one");
+                _loggedToolMismatch = true;
+                break;
+            }
+        }
+    }
+
+    private void ReadDemand() {
+        var agent = AgentMJICraftSchedule.Instance();
+        var data = agent != null ? agent->Data : null;
+        if (data == null) {
+            DemandKnown = false;
+            return;
+        }
+
+        DemandKnown = true;
+        DemandCycle = data->MaterialUse.Cycle;
+        var entries = data->MaterialUse.Entries;
+        var numEntries = Math.Min(DemandEntryCount, entries.Length);
+        Span<int> sums = stackalloc int[DemandEntryCount];
+
+        for (var e = 0; e < numEntries; ++e) {
+            ref var entry = ref entries[e];
+            var used = entry.UsedAmounts;
+            // 🔴 兩邊都取小:UsedAmounts 是 FixedSizeArray109,而 Rows 的長度來自表列數。
+            //    表加列時 109 不會跟著長,只照表列數跑會直接讀到結構外(AVE 攔不到)。
+            var n = Math.Min(Rows.Length, used.Length);
+            var sum = 0;
+            for (var i = 0; i < n; ++i) {
+                var v = used[i];
+                Rows[i].Demand[e] = v;
+                sum += v;
+            }
+            for (var i = n; i < Rows.Length; ++i)
+                Rows[i].Demand[e] = 0;
+            sums[e] = sum;
+        }
+        for (var e = numEntries; e < DemandEntryCount; ++e)
+            for (var i = 0; i < Rows.Length; ++i)
+                Rows[i].Demand[e] = 0;
+
+        var triple = (sums[0], sums[1], sums[2]);
+        var now = Environment.TickCount64;
+        if (triple != _lastLoggedDemand && now >= _nextDemandLog) {
+            _lastLoggedDemand = triple;
+            _nextDemandLog = now + DemandLogCooldownMs;
+            var monotonic = sums[0] <= sums[1] && sums[1] <= sums[2];
+            Service.Log.Information($"[Materials] MaterialUse cycle={DemandCycle} totals=[{sums[0]}, {sums[1]}, {sums[2]}] monotonic(0<=1<=2)={monotonic} - CS calls them cycle/week/week+next, unverified");
+        }
+    }
+
+    private void ReadStock(MJIManager* mji) {
+        // 🔑 離線反組譯確認(台服 7.20):AgentMJIPouch::GetPouchItemCount 自己就是去呼叫
+        //    InventoryManager::GetInventoryItemCount(pouchItem->ItemId, false, true, true, 0),
+        //    而 GetInventoryItemCount 對收納袋道具會跳過一般背包、改問無人島那個管理器。
+        //    ⇒ Utils.NumItems() 就是遊戲自己那條路,不需要開過收納袋 UI。
+        // ⚠️ 但它在資料還沒載入時是**靜默回 0**(ICE 在 BetweenAreas 踩過)。
+        //    所以切區中不更新,而且整份讀成 0 時保留上一次的快照。
+        if (Service.Condition[ConditionFlag.BetweenAreas] || Service.Condition[ConditionFlag.BetweenAreas51]) {
+            StockFrozen = StockKnown;
+            return;
+        }
+
+        var total = 0;
+        var n = Rows.Length;
+        var fresh = new int[n];
+        for (var i = 0; i < n; ++i) {
+            var itemId = Rows[i].Info.ItemId;
+            var count = itemId != 0 ? Utils.NumItems(itemId) : 0;
+            fresh[i] = count;
+            total += count;
+        }
+
+        if (total == 0 && _everSawStock) {
+            // 曾經讀到過東西,現在整份是 0 —— 幾乎一定是資料沒載入而不是真的清空。
+            StockFrozen = true;
+            return;
+        }
+
+        for (var i = 0; i < n; ++i)
+            Rows[i].Stock = fresh[i];
+        StockKnown = true;
+        StockFrozen = false;
+        if (total > 0)
+            _everSawStock = true;
+    }
+
+    private void ReadIncoming(MJIManager* mji) {
+        foreach (var r in Rows)
+            r.Granary = r.Farm = r.Pasture = 0;
+
+        // --- 屯貨倉庫(遠征):精確到材料 ---
+        var granaries = mji->GranariesState;
+        GranaryKnown = IsPlausible(granaries);
+        if (GranaryKnown) {
+            for (var gi = 0; gi < MJIGranariesState.MaxGranaries; ++gi) {
+                ref var g = ref granaries->Granary[gi];
+                // 🔴 pouch 列號 0 是真材料(棕櫚葉),判有沒有東西一律看數量。
+                if (g.RareResourceCount > 0)
+                    Add(g.RareResourcePouchId, g.RareResourceCount, static (r, v) => r.Granary += v);
+                var slots = Math.Min(g.NormalResourceCounts.Length, g.NormalResourcePouchIds.Length);
+                for (var i = 0; i < slots; ++i) {
+                    var count = g.NormalResourceCounts[i];
+                    if (count > 0)
+                        Add(g.NormalResourcePouchIds[i], count, static (r, v) => r.Granary += v);
+                }
+            }
+        }
+
+        // --- 農園:每格的 SeedType -> MJICropSeed -> 收成物 ---
+        var farm = mji->FarmState;
+        FarmKnown = IsPlausible(farm);
+        if (FarmKnown) {
+            var slots = Math.Min(farm->SeedType.Length, farm->GardenerYield.Length);
+            for (var i = 0; i < slots; ++i) {
+                var seed = farm->SeedType[i];
+                var yield = farm->GardenerYield[i];
+                if (seed == 0 || yield <= 0)
+                    continue;
+                var crop = Lumina.Excel.Sheets.MJICropSeed.GetRow(seed);
+                if (crop == null)
+                    continue;
+                if (MaterialSources.TryGetPouchIdByItemId(crop.Value.Item.RowId, out var pouchId))
+                    Add(pouchId, yield, static (r, v) => r.Farm += v);
+            }
+        }
+
+        // --- 牧場:魔法人偶已收集但還沒領的產物(鍵是 Item 列號,不是收納袋列號) ---
+        var pasture = mji->PastureHandler;
+        PastureKnown = IsPlausible(pasture);
+        if (PastureKnown) {
+            foreach (var (itemId, count) in pasture->AvailableMammetLeavings) {
+                if (count <= 0)
+                    continue;
+                if (MaterialSources.TryGetPouchIdByItemId(itemId, out var pouchId))
+                    Add(pouchId, count, static (r, v) => r.Pasture += v);
+            }
+        }
+    }
+
+    private void Add(uint pouchId, int amount, Action<MaterialLedgerRow, int> apply) {
+        if (pouchId < Rows.Length)
+            apply(Rows[(int)pouchId], amount);
+    }
+
+    // 只是把「CS 的欄位偏移在台服對不上 -> 讀到一個很小的垃圾值」變成不做事,
+    // 而不是拿去解參考。這不是防護,是把一整類靜默錯誤擋在門外。
+    private static bool IsPlausible(void* p) => (nint)p > 0x10000;
+
+    public bool GapKnown(MaterialLedgerRow row) => DemandKnown && StockKnown;
+    public bool IncomingKnown => GranaryKnown && FarmKnown && PastureKnown;
+    public int Gap(MaterialLedgerRow row, int horizon) => row.Demand[horizon] - row.Stock - row.Incoming;
+}
