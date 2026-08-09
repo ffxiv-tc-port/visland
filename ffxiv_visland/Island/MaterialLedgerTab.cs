@@ -1,8 +1,11 @@
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility.Raii;
+using System;
 using System.Collections.Generic;
 using System.Text;
+using visland.Gathering;
 using visland.Helpers;
 
 namespace visland.Island;
@@ -18,15 +21,29 @@ public sealed class MaterialLedgerTab {
     private bool _hideLocked = true;
     private readonly List<MaterialLedgerRow> _visible = [];
 
+    private List<RouteCoverage> _coverage = [];
+    private readonly HashSet<uint> _shortages = [];
+    private long _nextCoverageRefresh;
+    private const int CoverageRefreshMs = 2000;
+
     private static readonly uint ColShortage = 0xff4f53d9; // ABGR:紅
     private static readonly uint ColUnknown = 0xff909090;  // 灰:代表「不知道」,不是 0
 
     public void Draw() {
         _ledger.Refresh();
+        RefreshCoverage();
         DrawHeader();
         DrawControls();
         ImGui.Separator();
         DrawTable();
+    }
+
+    private void RefreshCoverage() {
+        var now = Environment.TickCount64;
+        if (now < _nextCoverageRefresh)
+            return;
+        _nextCoverageRefresh = now + CoverageRefreshMs;
+        _coverage = RouteMatcher.Compute(Service.RouteExec.RouteDB.Routes);
     }
 
     private void DrawHeader() {
@@ -80,12 +97,17 @@ public sealed class MaterialLedgerTab {
             return gb != ga ? gb.CompareTo(ga) : a.Info.PouchId.CompareTo(b.Info.PouchId);
         });
 
+        _shortages.Clear();
+        foreach (var row in _ledger.Rows)
+            if (_ledger.GapKnown(row) && _ledger.Gap(row, _horizon) > 0)
+                _shortages.Add(row.Info.PouchId);
+
         if (_visible.Count == 0) {
             ImGui.TextUnformatted("Nothing to show.".Loc());
             return;
         }
 
-        using var table = ImRaii.Table("materials", 4, ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV);
+        using var table = ImRaii.Table("materials", 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.BordersInnerV);
         if (!table)
             return;
 
@@ -94,6 +116,7 @@ public sealed class MaterialLedgerTab {
         ImGui.TableSetupColumn("Gap".Loc(), ImGuiTableColumnFlags.WidthFixed, 60);
         ImGui.TableSetupColumn("Have / Need".Loc(), ImGuiTableColumnFlags.WidthFixed, 110);
         ImGui.TableSetupColumn("Source".Loc(), ImGuiTableColumnFlags.WidthFixed, 150);
+        ImGui.TableSetupColumn("Route".Loc(), ImGuiTableColumnFlags.WidthFixed, 190);
         ImGui.TableHeadersRow();
 
         foreach (var row in _visible)
@@ -128,7 +151,89 @@ public sealed class MaterialLedgerTab {
 
         ImGui.TableNextColumn();
         ImGui.TextUnformatted(SourceBadges(row.Info));
+
+        ImGui.TableNextColumn();
+        DrawRouteCell(row);
     }
+
+    // 找出覆蓋這個材料的路線,按「順手能一起補幾種你缺的材料」排序。
+    private List<RouteCoverage> CandidateRoutes(uint pouchId) {
+        List<RouteCoverage> candidates = [];
+        foreach (var cov in _coverage)
+            if (cov.HitsByPouch.ContainsKey(pouchId))
+                candidates.Add(cov);
+        candidates.Sort((a, b) => {
+            var sa = ShortageCount(a);
+            var sb = ShortageCount(b);
+            if (sa != sb)
+                return sb.CompareTo(sa);
+            var ha = a.HitsByPouch[pouchId];
+            var hb = b.HitsByPouch[pouchId];
+            return hb != ha ? hb.CompareTo(ha) : a.MaterialCount.CompareTo(b.MaterialCount);
+        });
+        return candidates;
+    }
+
+    private int ShortageCount(RouteCoverage cov) {
+        var n = 0;
+        foreach (var pouchId in cov.HitsByPouch.Keys)
+            if (_shortages.Contains(pouchId))
+                ++n;
+        return n;
+    }
+
+    private void DrawRouteCell(MaterialLedgerRow row) {
+        if (row.Info.Gather == null)
+            return; // 不是靠採集拿的材料,路線欄留白
+
+        var candidates = CandidateRoutes(row.Info.PouchId);
+        if (candidates.Count == 0) {
+            using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
+                ImGui.TextUnformatted("-");
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("No saved route covers this material.".Loc());
+            return;
+        }
+
+        var best = candidates[0];
+        var running = Service.RouteExec.CurrentRoute != null;
+        using (ImRaii.PushId((int)row.Info.PouchId)) {
+            using (ImRaii.Disabled(running || best.Route.Waypoints.Count == 0)) {
+                if (ImGuiComponents.IconButton(FontAwesomeIcon.Play))
+                    // 沿用路線編輯器那顆播放鍵的手動語意:從第一點開始、走完就停、不迴圈。
+                    Service.RouteExec.Start(best.Route, 0, true, false, best.Route.Waypoints[0].Pathfind);
+            }
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(running ? "A route is already running.".Loc() : "Run ??".Loc(best.Route.Name));
+
+            ImGui.SameLine();
+            ImGui.TextUnformatted(Shorten(best.Route.Name, 14));
+            if (ImGui.IsItemHovered())
+                DrawRouteTooltip(row, candidates);
+        }
+    }
+
+    private void DrawRouteTooltip(MaterialLedgerRow row, List<RouteCoverage> candidates) {
+        var sb = new StringBuilder();
+        sb.Append("Routes covering this material:".Loc()).Append('\n');
+        var shown = 0;
+        foreach (var cov in candidates) {
+            if (shown++ >= 8) {
+                sb.Append("  ...").Append('\n');
+                break;
+            }
+            sb.Append("  ").Append(cov.Route.Name).Append('\n');
+            sb.Append("    ").Append("covers ?? material(s), ?? of them short - ?? waypoint(s) here".Loc(
+                cov.MaterialCount, ShortageCount(cov), cov.HitsByPouch[row.Info.PouchId])).Append('\n');
+            if (cov.Approximate)
+                sb.Append("    ").Append("No interaction waypoints in this route, so the match is approximate.".Loc()).Append('\n');
+        }
+        sb.Append('\n');
+        sb.Append("Routes are matched by coordinates only, so a route can be listed for materials it does not actually gather.".Loc());
+        ImGui.SetTooltip(sb.ToString());
+    }
+
+    private static string Shorten(string s, int max) => s.Length <= max ? s : string.Concat(s.AsSpan(0, max - 1), "…");
 
     private static string SourceBadges(MaterialInfo info) {
         List<string> badges = [];
