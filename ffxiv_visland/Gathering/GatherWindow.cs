@@ -26,6 +26,7 @@ public class GatherWindow : Window {
     public GatherRouteExec Exec => Service.RouteExec;
     public GatherDebug _debug = null!;
     private readonly visland.Island.MaterialLedgerTab _materials = new();
+    private visland.Island.AutomationTab _automation = null!;
 
     private int selectedRouteIndex = -1;
     private static bool loop;
@@ -44,6 +45,9 @@ public class GatherWindow : Window {
         RouteDB = Service.Config.Get<GatherRouteDB>();
 
         _debug = new(Exec);
+        // 這裡才建:AutomationTab 在建構時就抓四個設定節點,而 Configuration 是在 Service.Init
+        // 裡初始化的 —— 用欄位初始式會在建構函式本體之前跑,順序上比較脆弱。
+        _automation = new();
     }
 
     public override void Draw() {
@@ -70,6 +74,9 @@ public class GatherWindow : Window {
             using (var tab = ImRaii.TabItem("Material Ledger".Loc()))
                 if (tab)
                     _materials.Draw();
+            using (var tab = ImRaii.TabItem("Automation".Loc()))
+                if (tab)
+                    _automation.Draw();
             using (var tab = ImRaii.TabItem("Log".Loc()))
                 if (tab)
                     ImGui.TextUnformatted("Plugin log is available via /xllog or Dalamud log window.".Loc());
