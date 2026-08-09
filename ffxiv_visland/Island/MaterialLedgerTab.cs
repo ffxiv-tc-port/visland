@@ -15,7 +15,8 @@ namespace visland.Island;
 // 為什麼放在 /visland 主視窗而不是倉庫/工坊視窗:那兩個是 UIAttachedWindow,
 // 只有站在對應建築前開了原生介面才看得見,而「還缺什麼」正是要在跑路線之前先看的東西。
 public sealed class MaterialLedgerTab {
-    private readonly MaterialLedger _ledger = new();
+    // 與倉庫策略、出口保留量共用同一份 —— 缺口的定義只能有一個。
+    private static MaterialLedger _ledger => Service.Materials;
     private int _horizon = MaterialLedger.HorizonTwoWeeks;
     private bool _onlyShortages = true;
     private bool _hideLocked = true;
@@ -101,10 +102,7 @@ public sealed class MaterialLedgerTab {
             return gb != ga ? gb.CompareTo(ga) : a.Info.PouchId.CompareTo(b.Info.PouchId);
         });
 
-        _shortages.Clear();
-        foreach (var row in _ledger.Rows)
-            if (_ledger.GapKnown(row) && _ledger.Gap(row, _horizon) > 0)
-                _shortages.Add(row.Info.PouchId);
+        _ledger.CollectShortages(_horizon, _shortages);
         // 每幀算一次就好,不要塞進排序比較器裡(那會乘上列數與比較次數)。
         foreach (var cov in _coverage) {
             var n = 0;

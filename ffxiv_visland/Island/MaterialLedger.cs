@@ -2,6 +2,7 @@ using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Client.Game.MJI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using System;
+using System.Collections.Generic;
 using visland.Helpers;
 
 namespace visland.Island;
@@ -281,4 +282,32 @@ public sealed unsafe class MaterialLedger {
     public bool GapKnown(MaterialLedgerRow row) => DemandKnown && StockKnown;
     public bool IncomingKnown => GranaryKnown && FarmKnown && PastureKnown;
     public int Gap(MaterialLedgerRow row, int horizon) => row.Demand[horizon] - row.Stock - row.Incoming;
+
+    /// <summary>
+    /// 目前有缺口的材料(MJIItemPouch 列號)。刻意填進呼叫端給的集合而不是回傳新集合 ——
+    /// UI 每幀都會叫一次。需求或庫存任一未知時集合會是空的:不知道就不要宣稱有缺口。
+    /// </summary>
+    public void CollectShortages(int horizon, HashSet<uint> into) {
+        into.Clear();
+        if (horizon < 0 || horizon >= DemandEntryCount)
+            return;
+        foreach (var row in Rows)
+            if (GapKnown(row) && Gap(row, horizon) > 0)
+                into.Add(row.Info.PouchId);
+    }
+
+    /// <summary>
+    /// 這個材料「至少要留多少在收納袋裡」= 需求 - 在途。
+    /// 🔴 需求或在途任一讀不到就回 false —— 呼叫端必須退回原本的行為,
+    ///    不可以拿「不知道」當 0 去算:那會安靜地把保留量算成整個需求,結果是少賣。
+    /// </summary>
+    public bool TryGetReserve(uint pouchId, int horizon, out int reserve) {
+        reserve = 0;
+        if (!DemandKnown || !IncomingKnown || horizon < 0 || horizon >= DemandEntryCount)
+            return false;
+        if (pouchId >= Rows.Length)
+            return false;
+        reserve = Math.Max(0, Rows[(int)pouchId].Demand[horizon] - Rows[(int)pouchId].Incoming);
+        return true;
+    }
 }
