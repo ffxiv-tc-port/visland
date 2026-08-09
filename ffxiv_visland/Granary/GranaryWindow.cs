@@ -15,7 +15,8 @@ unsafe class GranaryWindow : UIAttachedWindow {
     private readonly GranaryDebug _debug;
 
     // 「補缺口」策略與表格的第 4 欄共用的暫存,避免每幀配置。
-    private readonly HashSet<uint> _shortages = [];
+    private readonly HashSet<uint> _shortages = [];          // 工坊排程算出來的缺口(次要項)
+    private readonly Dictionary<uint, int> _scarcityRanks = []; // 收納袋絕對庫存最低的前 N 名(主導項)
     private readonly HashSet<uint> _scratch = [];
 
     public GranaryWindow() : base("Granary Automation".Loc(), "MJIGatheringHouse", new(400, 600)) {
@@ -58,7 +59,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
             _config.NotifyModified();
         if (UICombo.Enum("Auto Reassign".Loc(), ref _config.Reassign))
             _config.NotifyModified();
-        ImGuiComponents.HelpMarker("\"Cover shortages\" scores each expedition by how many of your currently short materials it can bring, and gives the second granary whatever the first one does not already cover. It only counts whether a material is covered, not how much of it arrives - daily yields are not in the game data. Shortages are measured against the workshop agenda's two-week material requirement.".Loc());
+        ImGuiComponents.HelpMarker("\"Top up low stock\" ranks the materials a granary can actually bring by how few of them you hold in the island pouch, and sends the first granary wherever it can restock the scarcest one. The second granary gets whatever the first does not already cover. It only counts whether a material is covered, not how much arrives - daily yields are not in the game data. The workshop agenda's two-week requirement is used only to break ties.".Loc());
         if (ImGui.Button("Apply!".Loc()))
             ForceReassign();
 
@@ -70,15 +71,17 @@ unsafe class GranaryWindow : UIAttachedWindow {
         CollectResult[] collectStates = [GranaryUtils.CalculateGranaryCollectionState(0), GranaryUtils.CalculateGranaryCollectionState(1)];
 
         Service.Materials.Refresh();
+        var agentForScan = AgentMJIGatheringHouse.Instance();
+        var candidates = BuildCandidates(agentForScan);
+        // 這一欄的語意與策略必須是同一把尺:算的是「收納袋裡數量最少的前 N 種,這裡能補幾種」。
+        // 🔴 庫存讀不到時「可補 0 種」與「一種都補不到」是兩件事,畫成 0 會直接誤導 -> 畫 ?。
+        var scarcityKnown = Service.Materials.TryRankByStock(EligibleMaterials(candidates), TopScarce, _scarcityRanks);
         Service.Materials.CollectShortages(MaterialLedger.HorizonTwoWeeks, _shortages);
-        // 🔴 需求/庫存讀不到時「可補 0 種」與「真的一種都補不到」是兩件事,
-        //    畫成 0 會直接誤導 —— 這種時候畫 ? 。
-        var shortagesKnown = Service.Materials.DemandKnown && Service.Materials.StockKnown;
 
         using var table = ImRaii.Table("table", 4);
         if (table) {
             ImGui.TableSetupColumn("Expedition".Loc());
-            ImGui.TableSetupColumn("Covers shortages".Loc(), ImGuiTableColumnFlags.WidthFixed, 110);
+            ImGui.TableSetupColumn("Tops up low stock".Loc(), ImGuiTableColumnFlags.WidthFixed, 120);
             ImGui.TableSetupColumn("Granary 1".Loc(), ImGuiTableColumnFlags.WidthFixed, 100);
             ImGui.TableSetupColumn("Granary 2".Loc(), ImGuiTableColumnFlags.WidthFixed, 100);
             ImGui.TableHeadersRow();
@@ -93,7 +96,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
                         GranaryUtils.Collect(i);
             }
 
-            var agent = AgentMJIGatheringHouse.Instance();
+            var agent = agentForScan;
             for (var e = agent->Data->Expeditions.First; e != agent->Data->Expeditions.Last; ++e) {
                 if (!agent->IsExpeditionUnlocked(e))
                     continue;
@@ -105,18 +108,18 @@ unsafe class GranaryWindow : UIAttachedWindow {
 
                 ImGui.TableNextColumn();
                 CollectExpeditionMaterials(e, _scratch);
-                if (!shortagesKnown) {
+                if (!scarcityKnown) {
                     using (ImRaii.PushColor(ImGuiCol.Text, 0xff909090u))
                         ImGui.TextUnformatted("?");
                     if (ImGui.IsItemHovered())
-                        ImGui.SetTooltip("Shortages are unknown - open the Isleworks agenda once so the material requirement can be read.".Loc());
+                        ImGui.SetTooltip("Pouch counts could not be read, so the lowest-stock ranking is unknown.".Loc());
                 }
                 else {
                     var covered = 0;
                     foreach (var p in _scratch)
-                        if (_shortages.Contains(p))
+                        if (_scarcityRanks.ContainsKey(p))
                             ++covered;
-                    ImGui.TextUnformatted("?? short".Loc(covered));
+                    ImGui.TextUnformatted("?? of ??".Loc(covered, _scarcityRanks.Count));
                     if (covered > 0 && ImGui.IsItemHovered())
                         ImGui.SetTooltip(DescribeCovered(_scratch));
                 }
@@ -152,18 +155,42 @@ unsafe class GranaryWindow : UIAttachedWindow {
 
     private string DescribeCovered(HashSet<uint> materials) {
         var sb = new StringBuilder();
-        sb.Append("Shortages this expedition can bring:".Loc()).Append('\n');
+        sb.Append("This expedition can top up:".Loc()).Append('\n');
+        // 依現有數量由少到多列,使用者才對得上他在開拓包裡看到的順序。
+        List<(uint PouchId, int Stock)> listed = [];
+        foreach (var pouchId in materials)
+            if (_scarcityRanks.ContainsKey(pouchId))
+                listed.Add((pouchId, Service.Materials.StockOf(pouchId)));
+        listed.Sort((a, b) => a.Stock != b.Stock ? a.Stock.CompareTo(b.Stock) : a.PouchId.CompareTo(b.PouchId));
+
         var shown = 0;
-        foreach (var pouchId in materials) {
-            if (!_shortages.Contains(pouchId))
-                continue;
+        foreach (var (pouchId, stock) in listed) {
             if (shown++ >= 12) {
-                sb.Append("  ...");
+                sb.Append("  ...").Append('\n');
                 break;
             }
-            sb.Append("  ").Append(MaterialSources.ByPouchId(pouchId)?.Name ?? $"#{pouchId}").Append('\n');
+            var name = MaterialSources.ByPouchId(pouchId)?.Name ?? $"#{pouchId}";
+            sb.Append("  ").Append("?? (have ??)".Loc(name, stock));
+            if (_shortages.Contains(pouchId))
+                sb.Append(' ').Append("[workshop needs this]".Loc());
+            sb.Append('\n');
         }
         return sb.ToString().TrimEnd('\n');
+    }
+
+    // 讓實機回報「它為什麼派這裡」有得對照 —— 使用者跑 LogLevel 2,所以寫 Information。
+    private string DescribeScarcest() {
+        List<(uint PouchId, int Rank)> ordered = [];
+        foreach (var kv in _scarcityRanks)
+            ordered.Add((kv.Key, kv.Value));
+        ordered.Sort((a, b) => a.Rank.CompareTo(b.Rank));
+        var sb = new StringBuilder();
+        foreach (var (pouchId, _) in ordered) {
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append(MaterialSources.ByPouchId(pouchId)?.Name ?? $"#{pouchId}").Append('=').Append(Service.Materials.StockOf(pouchId));
+        }
+        return sb.Length > 0 ? sb.ToString() : "(stock unavailable)";
     }
 
     private readonly record struct ExpeditionCandidate(byte Id, int RareCount, HashSet<uint> Materials);
@@ -181,8 +208,34 @@ unsafe class GranaryWindow : UIAttachedWindow {
         return candidates;
     }
 
+    // 全部未解鎖遠征地能帶回的材料聯集 —— 稀缺排名只在這個集合裡排,
+    // 否則種子/作物/畜牧產物那些倉庫根本帶不回來的東西會佔滿前幾名。
+    private HashSet<uint> EligibleMaterials(List<ExpeditionCandidate> candidates) {
+        HashSet<uint> eligible = [];
+        foreach (var c in candidates)
+            foreach (var pouchId in c.Materials)
+                eligible.Add(pouchId);
+        return eligible;
+    }
+
     // 評分只算「有沒有覆蓋到」不算「會拿多少」—— 每日產量不在 EXD 裡,算不出來就不要假裝算得出來。
-    private static int Score(ExpeditionCandidate c, HashSet<uint> remaining) {
+    //
+    // 🔑 主導項是「絕對庫存最低」:權重 1 << (TopScarce-1-名次),
+    //    所以較低名次全部加起來也贏不過任何一個更高的名次
+    //    (512 > 256+128+...+1 = 511)—— 覆蓋到最缺那一項的遠征地必定勝出。
+    //    這正是使用者要的語意:最缺鐵礦就該派往「山」,而不是被一堆中等材料的廣度蓋過去。
+    // 工坊需求只當次要項(平手時才用),因為需求驅動的缺口會把沒被排程吃到的材料算成不缺。
+    private const int TopScarce = 10;
+
+    private int ScarcityScore(ExpeditionCandidate c) {
+        var score = 0;
+        foreach (var pouchId in c.Materials)
+            if (_scarcityRanks.TryGetValue(pouchId, out var rank))
+                score += 1 << (TopScarce - 1 - rank);
+        return score;
+    }
+
+    private int ShortageScore(ExpeditionCandidate c, HashSet<uint> remaining) {
         var n = 0;
         foreach (var pouchId in c.Materials)
             if (remaining.Contains(pouchId))
@@ -190,14 +243,22 @@ unsafe class GranaryWindow : UIAttachedWindow {
         return n;
     }
 
-    private static ExpeditionCandidate? PickBest(List<ExpeditionCandidate> candidates, HashSet<uint> remaining) {
+    private ExpeditionCandidate? PickBest(List<ExpeditionCandidate> candidates, HashSet<uint> remainingScarce, HashSet<uint> remainingShortages) {
         ExpeditionCandidate? best = null;
-        var bestScore = -1;
+        (int Scarcity, int Shortage) bestScore = (-1, -1);
         foreach (var c in candidates) {
-            var score = Score(c, remaining);
-            // 平手時沿用既有策略的精神:稀有材料存量少的優先;再平手就取 id 小的求穩定。
-            if (score > bestScore
-                || score == bestScore && best is { } b && (c.RareCount < b.RareCount || c.RareCount == b.RareCount && c.Id < b.Id)) {
+            var scarcity = 0;
+            foreach (var pouchId in c.Materials)
+                if (remainingScarce.Contains(pouchId) && _scarcityRanks.TryGetValue(pouchId, out var rank))
+                    scarcity += 1 << (TopScarce - 1 - rank);
+            var score = (scarcity, ShortageScore(c, remainingShortages));
+
+            var better = score.Item1 > bestScore.Scarcity
+                || score.Item1 == bestScore.Scarcity && score.Item2 > bestScore.Shortage
+                // 兩項都平手時沿用既有策略的精神:稀有材料存量少的優先;再平手取 id 小的求穩定。
+                || score.Item1 == bestScore.Scarcity && score.Item2 == bestScore.Shortage && best is { } b
+                    && (c.RareCount < b.RareCount || c.RareCount == b.RareCount && c.Id < b.Id);
+            if (better) {
                 best = c;
                 bestScore = score;
             }
@@ -252,27 +313,33 @@ unsafe class GranaryWindow : UIAttachedWindow {
             }
         }
         else if (_config.Reassign == GranaryConfig.UpdateStrategy.CoverShortages) {
-            // 需求基準用兩週檔(MaterialUse.Entries[2])。
-            // ⚠️ 那三個檔的語意取自 CS 註解、尚未實機驗證 —— 說明文字裡有寫明是「工坊排程兩週需求」,
-            //    萬一語意是別的,使用者對照得出來。
             Service.Materials.Refresh(true);
-            Service.Materials.CollectShortages(MaterialLedger.HorizonTwoWeeks, _shortages);
-
             var candidates = BuildCandidates(agent);
             if (candidates.Count > 0) {
-                // 缺口讀不到時 _shortages 是空的 -> 每個遠征地都得 0 分 ->
-                // 退回平手規則(稀有材料存量最少者),行為接近既有策略,不會亂跳。
-                HashSet<uint> remaining = [.. _shortages];
-                var first = PickBest(candidates, remaining);
+                // 主導項:收納袋裡絕對數量最少的前 N 種(只在倉庫真的帶得回來的材料裡排)。
+                Service.Materials.TryRankByStock(EligibleMaterials(candidates), TopScarce, _scarcityRanks);
+                // 次要項:工坊排程算出來的缺口,只在稀缺分數平手時才有作用。
+                // ⚠️ 需求檔的語意(兩週)取自 CS 註解、尚未實機驗證。
+                Service.Materials.CollectShortages(MaterialLedger.HorizonTwoWeeks, _shortages);
+
+                // 庫存讀不到時 _scarcityRanks 是空的、缺口也是空的 -> 兩項都 0 分 ->
+                // 退回平手規則(稀有材料存量最少者),也就是既有策略的行為,不會亂跳。
+                HashSet<uint> remainingScarce = [.. _scarcityRanks.Keys];
+                HashSet<uint> remainingShortages = [.. _shortages];
+                var first = PickBest(candidates, remainingScarce, remainingShortages);
                 if (first is { } f) {
                     newDestinations[0] = f.Id;
                     // 貪婪:第二個倉庫只看第一個沒覆蓋到的那些。
-                    foreach (var pouchId in f.Materials)
-                        remaining.Remove(pouchId);
-                    var second = PickBest(candidates, remaining);
+                    foreach (var pouchId in f.Materials) {
+                        remainingScarce.Remove(pouchId);
+                        remainingShortages.Remove(pouchId);
+                    }
+                    var second = PickBest(candidates, remainingScarce, remainingShortages);
                     newDestinations[1] = second?.Id ?? f.Id;
                     if (newDestinations[0] == currentDestinations[1] || newDestinations[1] == currentDestinations[0])
                         Utils.Swap(ref newDestinations[0], ref newDestinations[1]); // 覆蓋集合的聯集不變,順手少送一次指令
+
+                    Service.Log.Information($"[Granary] cover-shortages picked {newDestinations[0]}/{newDestinations[1]}; scarcest={DescribeScarcest()}");
                 }
             }
         }

@@ -297,6 +297,40 @@ public sealed unsafe class MaterialLedger {
     }
 
     /// <summary>
+    /// 依「收納袋現有數量」由少到多排名,只看 <paramref name="eligible"/> 裡且已解鎖的材料,
+    /// 取最少的前 <paramref name="topN"/> 名填進 <paramref name="ranks"/>(pouch 列號 -> 名次,0 = 最少)。
+    ///
+    /// 🔑 這是「使用者心智模型」的那把尺:他看的是開拓包上的絕對數量,
+    ///    不是工坊排程算出來的缺口 —— 沒被排程吃到的材料(例如無人島鐵礦)在需求驅動的缺口裡是 0,
+    ///    但在他眼裡那正是最缺的東西。實機回報就是這樣派錯地的。
+    /// ⚠️ 刻意不扣在途:使用者看的就是收納袋上那個數字,扣掉就對不起來了。
+    /// 🔴 庫存讀不到時回 false —— 呼叫端要畫 ?,不可以拿全 0 去排名(那會排出一份亂序)。
+    /// </summary>
+    public bool TryRankByStock(HashSet<uint> eligible, int topN, Dictionary<uint, int> ranks) {
+        ranks.Clear();
+        if (!StockKnown || topN <= 0)
+            return false;
+
+        List<(uint PouchId, int Stock)> pool = [];
+        foreach (var row in Rows) {
+            // 未解鎖的材料一律排除:它們的庫存必然是 0,會把前幾名整個佔滿而且毫無資訊。
+            if (!row.Unlocked || row.Info.ItemId == 0 || !eligible.Contains(row.Info.PouchId))
+                continue;
+            pool.Add((row.Info.PouchId, row.Stock));
+        }
+        if (pool.Count == 0)
+            return false;
+
+        pool.Sort((a, b) => a.Stock != b.Stock ? a.Stock.CompareTo(b.Stock) : a.PouchId.CompareTo(b.PouchId));
+        var n = Math.Min(topN, pool.Count);
+        for (var i = 0; i < n; ++i)
+            ranks[pool[i].PouchId] = i;
+        return true;
+    }
+
+    public int StockOf(uint pouchId) => pouchId < Rows.Length ? Rows[(int)pouchId].Stock : 0;
+
+    /// <summary>
     /// 這個材料「至少要留多少在收納袋裡」= 需求 - 在途。
     /// 🔴 需求或在途任一讀不到就回 false —— 呼叫端必須退回原本的行為,
     ///    不可以拿「不知道」當 0 去算:那會安靜地把保留量算成整個需求,結果是少賣。
