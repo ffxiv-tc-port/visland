@@ -434,7 +434,7 @@ public unsafe class WorkshopOCImport {
             r.Workshops.Add(o);
         }
         if (overrides.Count > Recommendations.Schedules.Count)
-            Service.ChatGui.Print("Warning: couldn't fit all overrides into base schedule".Loc(), "visland");
+            Service.ChatGui.Print(HelpText.OverridesDidNotFit.Loc(), "visland");
     }
 
     private void OverrideSideRecsAsapClipboard() {
@@ -473,7 +473,7 @@ public unsafe class WorkshopOCImport {
             nextOverride += batchSize;
         }
         if (nextOverride < overrides.Count)
-            Service.ChatGui.Print("Warning: couldn't fit all overrides into base schedule".Loc(), "visland");
+            Service.ChatGui.Print(HelpText.OverridesDidNotFit.Loc(), "visland");
     }
 
     private void ApplyRecommendations(bool nextWeek) {

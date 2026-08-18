@@ -181,7 +181,7 @@ public unsafe class FarmWindow : UIAttachedWindow {
             using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
                 ImGui.TextUnformatted("?");
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("The workshop agenda has not been read yet - open the Craftworks agenda once and the numbers will stay.".Loc());
+                ImGui.SetTooltip(HelpText.AgendaNotReadYet.Loc());
             return;
         }
 
@@ -199,11 +199,11 @@ public unsafe class FarmWindow : UIAttachedWindow {
         var ledger = Service.Materials;
         var sb = new StringBuilder();
         sb.Append(row.Info.Name).Append('\n');
-        sb.Append("Demand - cycle ??, week ??, week + next ??".Loc(row.Demand[0], row.Demand[1], row.Demand[2])).Append('\n');
+        sb.Append(HelpText.DemandBreakdown.Loc(row.Demand[0], row.Demand[1], row.Demand[2])).Append('\n');
         sb.Append(ledger.StockKnown
             ? "In pouch: ??".Loc(row.Stock)
             : "Pouch count unknown.".Loc()).Append('\n');
-        sb.Append("Incoming - granary ??, farm ??, pasture ??".Loc(
+        sb.Append(HelpText.IncomingBreakdown.Loc(
             ledger.GranaryKnown ? row.Granary : "?",
             ledger.FarmKnown ? row.Farm : "?",
             ledger.PastureKnown ? row.Pasture : "?")).Append('\n');

@@ -59,7 +59,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
             _config.NotifyModified();
         if (UICombo.Enum("Auto Reassign".Loc(), ref _config.Reassign))
             _config.NotifyModified();
-        ImGuiComponents.HelpMarker("\"Top up low stock\" ranks the materials a granary can actually bring by pouch stock minus the workshop agenda's two-week demand, so a material the workshop is about to eat counts as scarcer than its raw count suggests. Materials the workshop does not use keep their plain stock and are still ranked. The first granary is sent wherever it can restock the scarcest one; the second gets whatever the first does not cover. It only counts whether a material is covered, not how much arrives - daily yields are not in the game data. If the workshop agenda has not been read yet, ranking falls back to plain pouch stock. Incoming granary and farm deliveries are deliberately not subtracted.".Loc());
+        ImGuiComponents.HelpMarker(HelpText.GranaryTopUpLowStock.Loc());
         if (ImGui.Button("Apply!".Loc()))
             ForceReassign();
 
@@ -83,7 +83,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
         //    不講的話使用者會以為「先扣消耗量」已經生效 —— 那正是他要求這個功能的目的。
         if (!demandApplied) {
             using (ImRaii.PushColor(ImGuiCol.Text, 0xff909090u))
-                ImGui.TextUnformatted("Workshop demand has not been read yet, so ranking falls back to plain pouch stock.".Loc());
+                ImGui.TextUnformatted(HelpText.DemandFallbackToPlainStock.Loc());
         }
 
         using var table = ImRaii.Table("table", 4);
@@ -167,7 +167,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
         // 第一行永遠是「用的是哪一把尺」—— 數字要能被解釋,不然使用者只會覺得排序莫名其妙。
         sb.Append(demandApplied
             ? "Ranked by pouch stock minus the workshop agenda's two-week demand.".Loc()
-            : "Workshop demand has not been read yet, so ranking falls back to plain pouch stock.".Loc()).Append('\n');
+            : HelpText.DemandFallbackToPlainStock.Loc()).Append('\n');
 
         // 依排名用的那把尺由少到多列,使用者才對得上上面那一欄的順序。
         List<(uint PouchId, int Net)> listed = [];

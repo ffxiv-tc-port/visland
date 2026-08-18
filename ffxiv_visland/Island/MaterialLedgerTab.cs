@@ -55,7 +55,7 @@ public sealed class MaterialLedgerTab {
         }
         if (!_ledger.DemandKnown) {
             using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
-                ImGui.TextUnformatted("The workshop agenda has not been read yet - open the Craftworks agenda once and the numbers will stay.".Loc());
+                ImGui.TextUnformatted(HelpText.AgendaNotReadYet.Loc());
         }
         else if (_ledger.DemandFrozen) {
             // 快照仍然是「知道」,所以列上照常給數字;這一行只是交代它有多舊。
@@ -271,15 +271,15 @@ public sealed class MaterialLedgerTab {
 
         sb.Append('\n');
         if (_ledger.DemandKnown)
-            sb.Append("Demand - cycle ??, week ??, week + next ??".Loc(row.Demand[0], row.Demand[1], row.Demand[2])).Append('\n');
+            sb.Append(HelpText.DemandBreakdown.Loc(row.Demand[0], row.Demand[1], row.Demand[2])).Append('\n');
         else
-            sb.Append("The workshop agenda has not been read yet - open the Craftworks agenda once and the numbers will stay.".Loc()).Append('\n');
+            sb.Append(HelpText.AgendaNotReadYet.Loc()).Append('\n');
         if (_ledger.DescribeDemandFreshness() is { } freshness)
             sb.Append(freshness).Append('\n');
         sb.Append(_ledger.StockKnown
             ? "In pouch: ??".Loc(row.Stock)
             : "Pouch count unknown.".Loc()).Append('\n');
-        sb.Append("Incoming - granary ??, farm ??, pasture ??".Loc(
+        sb.Append(HelpText.IncomingBreakdown.Loc(
             _ledger.GranaryKnown ? row.Granary : "?",
             _ledger.FarmKnown ? row.Farm : "?",
             _ledger.PastureKnown ? row.Pasture : "?")).Append('\n');

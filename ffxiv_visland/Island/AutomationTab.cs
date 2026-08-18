@@ -41,7 +41,7 @@ public sealed class AutomationTab {
             _granary.NotifyModified();
         if (UICombo.Enum("Auto Reassign".Loc(), ref _granary.Reassign))
             _granary.NotifyModified();
-        ImGuiComponents.HelpMarker("\"Top up low stock\" ranks the materials a granary can actually bring by pouch stock minus the workshop agenda's two-week demand, so a material the workshop is about to eat counts as scarcer than its raw count suggests. Materials the workshop does not use keep their plain stock and are still ranked. The first granary is sent wherever it can restock the scarcest one; the second gets whatever the first does not cover. It only counts whether a material is covered, not how much arrives - daily yields are not in the game data. If the workshop agenda has not been read yet, ranking falls back to plain pouch stock. Incoming granary and farm deliveries are deliberately not subtracted.".Loc());
+        ImGuiComponents.HelpMarker(HelpText.GranaryTopUpLowStock.Loc());
         DrawNeedsBuilding("Reassigning now, and the per-expedition table, need the granary window.".Loc());
 
         Utils.DrawSection("Farm".Loc(), ImGuiColors.ParsedGold);
@@ -71,9 +71,9 @@ public sealed class AutomationTab {
         if (ImGui.IsItemDeactivatedAfterEdit())
             _export.NotifyModified();
         ImGui.PopItemWidth();
-        if (ImGui.Checkbox("Keep what the workshop agenda still needs".Loc(), ref _export.RespectWorkshopNeeds))
+        if (ImGui.Checkbox(HelpText.ExportRespectWorkshopNeedsLabel.Loc(), ref _export.RespectWorkshopNeeds))
             _export.NotifyModified();
-        ImGuiComponents.HelpMarker("Raises each limit to whatever the workshop agenda still needs: sells down to the larger of the limit above and (two-week requirement minus what is already inbound from granary, farm and pasture). If that requirement cannot be read, the plain limit is used - a missing reading never blocks a sale.".Loc());
+        ImGuiComponents.HelpMarker(HelpText.ExportRespectWorkshopNeedsHelp.Loc());
         DrawNeedsBuilding("Selling now needs the export window.".Loc());
     }
 

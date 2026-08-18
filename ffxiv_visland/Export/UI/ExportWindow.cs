@@ -62,9 +62,9 @@ unsafe class ExportWindow : UIAttachedWindow {
             _config.NotifyModified();
         ImGui.PopItemWidth();
 
-        if (ImGui.Checkbox("Keep what the workshop agenda still needs".Loc(), ref _config.RespectWorkshopNeeds))
+        if (ImGui.Checkbox(HelpText.ExportRespectWorkshopNeedsLabel.Loc(), ref _config.RespectWorkshopNeeds))
             _config.NotifyModified();
-        ImGuiComponents.HelpMarker("Raises each limit to whatever the workshop agenda still needs: sells down to the larger of the limit above and (two-week requirement minus what is already inbound from granary, farm and pasture). If that requirement cannot be read, the plain limit is used - a missing reading never blocks a sale.".Loc());
+        ImGuiComponents.HelpMarker(HelpText.ExportRespectWorkshopNeedsHelp.Loc());
 
         if (ImGui.Button("Sell everything above configured limits".Loc()))
             AutoExport();
