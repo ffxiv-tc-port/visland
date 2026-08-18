@@ -297,35 +297,51 @@ public sealed unsafe class MaterialLedger {
     }
 
     /// <summary>
-    /// 依「收納袋現有數量」由少到多排名,只看 <paramref name="eligible"/> 裡且已解鎖的材料,
-    /// 取最少的前 <paramref name="topN"/> 名填進 <paramref name="ranks"/>(pouch 列號 -> 名次,0 = 最少)。
+    /// 依「收納袋現有數量 − 工坊排程需求」由少到多排名(可為負,越負越缺),
+    /// 只看 <paramref name="eligible"/> 裡且已解鎖的材料,取最少的前 <paramref name="topN"/> 名
+    /// 填進 <paramref name="ranks"/>(pouch 列號 -> 名次,0 = 最缺)。
     ///
-    /// 🔑 這是「使用者心智模型」的那把尺:他看的是開拓包上的絕對數量,
-    ///    不是工坊排程算出來的缺口 —— 沒被排程吃到的材料(例如無人島鐵礦)在需求驅動的缺口裡是 0,
-    ///    但在他眼裡那正是最缺的東西。實機回報就是這樣派錯地的。
-    /// ⚠️ 刻意不扣在途:使用者看的就是收納袋上那個數字,扣掉就對不起來了。
+    /// 🔑 扣需求**不會**讓舊的實機 bug 回來。當初派錯地的成因是拿缺口(需求 - 庫存 - 在途 > 0)
+    ///    當**篩選器**:沒被排程吃到的材料(例如無人島鐵礦)需求是 0,就整個被判成「不缺」而消失。
+    ///    這裡是**排序鍵**不是篩選器 —— 需求 0 的材料鍵值就等於它的庫存,照樣參與排名,
+    ///    低庫存照樣排前面;被排程吃掉的材料則往前挪。這正是使用者要的「先扣掉消耗量再找最低」。
+    /// 🔴 需求讀不到時退回純庫存排序(加這個功能之前的行為),並用 <paramref name="demandApplied"/>
+    ///    回報 —— 不可以把「不知道」當 0 去扣,那會讓使用者以為排序已經考慮過消耗量。
+    /// ⚠️ 刻意不扣在途:使用者看的就是收納袋上那個數字,而且他只說了扣消耗量。
     /// 🔴 庫存讀不到時回 false —— 呼叫端要畫 ?,不可以拿全 0 去排名(那會排出一份亂序)。
     /// </summary>
-    public bool TryRankByStock(HashSet<uint> eligible, int topN, Dictionary<uint, int> ranks) {
+    public bool TryRankByNetStock(HashSet<uint> eligible, int topN, int horizon, Dictionary<uint, int> ranks, out bool demandApplied) {
         ranks.Clear();
+        demandApplied = DemandKnown && horizon >= 0 && horizon < DemandEntryCount;
         if (!StockKnown || topN <= 0)
             return false;
 
-        List<(uint PouchId, int Stock)> pool = [];
+        List<(uint PouchId, int Net)> pool = [];
         foreach (var row in Rows) {
             // 未解鎖的材料一律排除:它們的庫存必然是 0,會把前幾名整個佔滿而且毫無資訊。
             if (!row.Unlocked || row.Info.ItemId == 0 || !eligible.Contains(row.Info.PouchId))
                 continue;
-            pool.Add((row.Info.PouchId, row.Stock));
+            pool.Add((row.Info.PouchId, demandApplied ? row.Stock - row.Demand[horizon] : row.Stock));
         }
         if (pool.Count == 0)
             return false;
 
-        pool.Sort((a, b) => a.Stock != b.Stock ? a.Stock.CompareTo(b.Stock) : a.PouchId.CompareTo(b.PouchId));
+        pool.Sort((a, b) => a.Net != b.Net ? a.Net.CompareTo(b.Net) : a.PouchId.CompareTo(b.PouchId));
         var n = Math.Min(topN, pool.Count);
         for (var i = 0; i < n; ++i)
             ranks[pool[i].PouchId] = i;
         return true;
+    }
+
+    /// <summary>
+    /// 排名用的那把尺本身,給 UI 與 log 顯示用 —— 必須與 <see cref="TryRankByNetStock"/> 完全一致,
+    /// 包括「需求讀不到就等於純庫存」這個退路。同一個詞在排序與顯示算出不同答案會直接誤導。
+    /// </summary>
+    public int NetStockOf(uint pouchId, int horizon) {
+        if (pouchId >= Rows.Length)
+            return 0;
+        var row = Rows[(int)pouchId];
+        return DemandKnown && horizon >= 0 && horizon < DemandEntryCount ? row.Stock - row.Demand[horizon] : row.Stock;
     }
 
     /// <summary>

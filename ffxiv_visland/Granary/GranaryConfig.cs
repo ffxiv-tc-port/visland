@@ -23,7 +23,7 @@ public class GranaryConfig : Configuration.Node {
         // 🔴 列舉名保持 CoverShortages 不變 —— 設定檔存的是字串,改名會讓使用者已經選好的設定
         //    在下次載入時靜默退回 Manual。顯示文字與評分基準改成「絕對庫存最低優先」
         //    (實機回報:最缺鐵礦卻被派去沙灘,因為鐵礦沒被工坊排程吃到就不算「缺」)。
-        [Description("Max out and select expeditions that top up your lowest island pouch stocks")]
+        [Description("Max out and select expeditions that top up your lowest stocks after workshop demand")]
         CoverShortages,
     }
 

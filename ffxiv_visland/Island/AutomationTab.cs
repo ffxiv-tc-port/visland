@@ -41,7 +41,7 @@ public sealed class AutomationTab {
             _granary.NotifyModified();
         if (UICombo.Enum("Auto Reassign".Loc(), ref _granary.Reassign))
             _granary.NotifyModified();
-        ImGuiComponents.HelpMarker("\"Top up low stock\" ranks the materials a granary can actually bring by how few of them you hold in the island pouch, and sends the first granary wherever it can restock the scarcest one. The second granary gets whatever the first does not already cover. It only counts whether a material is covered, not how much arrives - daily yields are not in the game data. The workshop agenda's two-week requirement is used only to break ties.".Loc());
+        ImGuiComponents.HelpMarker("\"Top up low stock\" ranks the materials a granary can actually bring by pouch stock minus the workshop agenda's two-week demand, so a material the workshop is about to eat counts as scarcer than its raw count suggests. Materials the workshop does not use keep their plain stock and are still ranked. The first granary is sent wherever it can restock the scarcest one; the second gets whatever the first does not cover. It only counts whether a material is covered, not how much arrives - daily yields are not in the game data. If the workshop agenda has not been read yet, ranking falls back to plain pouch stock. Incoming granary and farm deliveries are deliberately not subtracted.".Loc());
         DrawNeedsBuilding("Reassigning now, and the per-expedition table, need the granary window.".Loc());
 
         Utils.DrawSection("Farm".Loc(), ImGuiColors.ParsedGold);

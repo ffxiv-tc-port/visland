@@ -59,7 +59,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
             _config.NotifyModified();
         if (UICombo.Enum("Auto Reassign".Loc(), ref _config.Reassign))
             _config.NotifyModified();
-        ImGuiComponents.HelpMarker("\"Top up low stock\" ranks the materials a granary can actually bring by how few of them you hold in the island pouch, and sends the first granary wherever it can restock the scarcest one. The second granary gets whatever the first does not already cover. It only counts whether a material is covered, not how much arrives - daily yields are not in the game data. The workshop agenda's two-week requirement is used only to break ties.".Loc());
+        ImGuiComponents.HelpMarker("\"Top up low stock\" ranks the materials a granary can actually bring by pouch stock minus the workshop agenda's two-week demand, so a material the workshop is about to eat counts as scarcer than its raw count suggests. Materials the workshop does not use keep their plain stock and are still ranked. The first granary is sent wherever it can restock the scarcest one; the second gets whatever the first does not cover. It only counts whether a material is covered, not how much arrives - daily yields are not in the game data. If the workshop agenda has not been read yet, ranking falls back to plain pouch stock. Incoming granary and farm deliveries are deliberately not subtracted.".Loc());
         if (ImGui.Button("Apply!".Loc()))
             ForceReassign();
 
@@ -73,10 +73,18 @@ unsafe class GranaryWindow : UIAttachedWindow {
         Service.Materials.Refresh();
         var agentForScan = AgentMJIGatheringHouse.Instance();
         var candidates = BuildCandidates(agentForScan);
-        // 這一欄的語意與策略必須是同一把尺:算的是「收納袋裡數量最少的前 N 種,這裡能補幾種」。
+        // 這一欄的語意與策略必須是同一把尺:算的是
+        //「收納袋現有 − 工坊排程兩週需求 最低的前 N 種,這個遠征地能補幾種」。
         // 🔴 庫存讀不到時「可補 0 種」與「一種都補不到」是兩件事,畫成 0 會直接誤導 -> 畫 ?。
-        var scarcityKnown = Service.Materials.TryRankByStock(EligibleMaterials(candidates), TopScarce, _scarcityRanks);
+        var scarcityKnown = Service.Materials.TryRankByNetStock(EligibleMaterials(candidates), TopScarce, MaterialLedger.HorizonTwoWeeks, _scarcityRanks, out var demandApplied);
         Service.Materials.CollectShortages(MaterialLedger.HorizonTwoWeeks, _shortages);
+
+        // 🔴 用的是哪一把尺必須看得見:需求讀不到時排序整個退回純庫存,
+        //    不講的話使用者會以為「先扣消耗量」已經生效 —— 那正是他要求這個功能的目的。
+        if (!demandApplied) {
+            using (ImRaii.PushColor(ImGuiCol.Text, 0xff909090u))
+                ImGui.TextUnformatted("Workshop demand has not been read yet, so ranking falls back to plain pouch stock.".Loc());
+        }
 
         using var table = ImRaii.Table("table", 4);
         if (table) {
@@ -120,8 +128,9 @@ unsafe class GranaryWindow : UIAttachedWindow {
                         if (_scarcityRanks.ContainsKey(p))
                             ++covered;
                     ImGui.TextUnformatted("?? of ??".Loc(covered, _scarcityRanks.Count));
-                    if (covered > 0 && ImGui.IsItemHovered())
-                        ImGui.SetTooltip(DescribeCovered(_scratch));
+                    // 覆蓋 0 種時也給 tooltip:排序基準本身要隨手查得到,不能只在有命中時才說。
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(DescribeCovered(_scratch, demandApplied));
                 }
 
                 for (var i = 0; i < 2; ++i) {
@@ -153,24 +162,34 @@ unsafe class GranaryWindow : UIAttachedWindow {
             into.Add(rarePouchId);
     }
 
-    private string DescribeCovered(HashSet<uint> materials) {
+    private string DescribeCovered(HashSet<uint> materials, bool demandApplied) {
         var sb = new StringBuilder();
-        sb.Append("This expedition can top up:".Loc()).Append('\n');
-        // 依現有數量由少到多列,使用者才對得上他在開拓包裡看到的順序。
-        List<(uint PouchId, int Stock)> listed = [];
+        // 第一行永遠是「用的是哪一把尺」—— 數字要能被解釋,不然使用者只會覺得排序莫名其妙。
+        sb.Append(demandApplied
+            ? "Ranked by pouch stock minus the workshop agenda's two-week demand.".Loc()
+            : "Workshop demand has not been read yet, so ranking falls back to plain pouch stock.".Loc()).Append('\n');
+
+        // 依排名用的那把尺由少到多列,使用者才對得上上面那一欄的順序。
+        List<(uint PouchId, int Net)> listed = [];
         foreach (var pouchId in materials)
             if (_scarcityRanks.ContainsKey(pouchId))
-                listed.Add((pouchId, Service.Materials.StockOf(pouchId)));
-        listed.Sort((a, b) => a.Stock != b.Stock ? a.Stock.CompareTo(b.Stock) : a.PouchId.CompareTo(b.PouchId));
+                listed.Add((pouchId, Service.Materials.NetStockOf(pouchId, MaterialLedger.HorizonTwoWeeks)));
+        if (listed.Count == 0)
+            return sb.ToString().TrimEnd('\n');
+        listed.Sort((a, b) => a.Net != b.Net ? a.Net.CompareTo(b.Net) : a.PouchId.CompareTo(b.PouchId));
 
+        sb.Append('\n').Append("This expedition can top up:".Loc()).Append('\n');
         var shown = 0;
-        foreach (var (pouchId, stock) in listed) {
+        foreach (var (pouchId, net) in listed) {
             if (shown++ >= 12) {
                 sb.Append("  ...").Append('\n');
                 break;
             }
             var name = MaterialSources.ByPouchId(pouchId)?.Name ?? $"#{pouchId}";
-            sb.Append("  ").Append("?? (have ??)".Loc(name, stock));
+            var stock = Service.Materials.StockOf(pouchId);
+            sb.Append("  ").Append(demandApplied
+                ? "?? (have ??, ?? after demand)".Loc(name, stock, net)
+                : "?? (have ??)".Loc(name, stock));
             if (_shortages.Contains(pouchId))
                 sb.Append(' ').Append("[workshop needs this]".Loc());
             sb.Append('\n');
@@ -188,7 +207,9 @@ unsafe class GranaryWindow : UIAttachedWindow {
         foreach (var (pouchId, _) in ordered) {
             if (sb.Length > 0)
                 sb.Append(", ");
-            sb.Append(MaterialSources.ByPouchId(pouchId)?.Name ?? $"#{pouchId}").Append('=').Append(Service.Materials.StockOf(pouchId));
+            sb.Append(MaterialSources.ByPouchId(pouchId)?.Name ?? $"#{pouchId}").Append('=')
+                .Append(Service.Materials.StockOf(pouchId)).Append("->")
+                .Append(Service.Materials.NetStockOf(pouchId, MaterialLedger.HorizonTwoWeeks));
         }
         return sb.Length > 0 ? sb.ToString() : "(stock unavailable)";
     }
@@ -220,11 +241,15 @@ unsafe class GranaryWindow : UIAttachedWindow {
 
     // 評分只算「有沒有覆蓋到」不算「會拿多少」—— 每日產量不在 EXD 裡,算不出來就不要假裝算得出來。
     //
-    // 🔑 主導項是「絕對庫存最低」:權重 1 << (TopScarce-1-名次),
+    // 🔑 主導項是「收納袋現有 − 工坊兩週需求 最低」:權重 1 << (TopScarce-1-名次),
     //    所以較低名次全部加起來也贏不過任何一個更高的名次
     //    (512 > 256+128+...+1 = 511)—— 覆蓋到最缺那一項的遠征地必定勝出。
     //    這正是使用者要的語意:最缺鐵礦就該派往「山」,而不是被一堆中等材料的廣度蓋過去。
-    // 工坊需求只當次要項(平手時才用),因為需求驅動的缺口會把沒被排程吃到的材料算成不缺。
+    // 🔑 需求 0 的材料鍵值就等於它的庫存,照樣參與排名 —— 所以「鐵礦沒被排程吃到就被無視」
+    //    那個舊 bug 不會因為扣需求而回來(它的成因是拿缺口當篩選器,不是扣需求本身)。
+    // 工坊缺口保留為次要項:主導項雖然已經把需求吃進去了,但缺口多扣了在途、且不受前 N 名限制,
+    //    所以在主導項完全平手(例如兩個遠征地都沒覆蓋到前 N 名)時仍有鑑別力。
+    // ⚠️ 兩項是嚴格字典序比較(見 PickBest):次要項只在主導項相等時才看 -> 不會雙重計分。
     private const int TopScarce = 10;
 
     private int ScarcityScore(ExpeditionCandidate c) {
@@ -316,8 +341,10 @@ unsafe class GranaryWindow : UIAttachedWindow {
             Service.Materials.Refresh(true);
             var candidates = BuildCandidates(agent);
             if (candidates.Count > 0) {
-                // 主導項:收納袋裡絕對數量最少的前 N 種(只在倉庫真的帶得回來的材料裡排)。
-                Service.Materials.TryRankByStock(EligibleMaterials(candidates), TopScarce, _scarcityRanks);
+                // 主導項:收納袋現有 − 工坊兩週需求 最低的前 N 種(只在倉庫真的帶得回來的材料裡排)。
+                // 🔴 需求讀不到時 demandApplied=false,排序自動退回純庫存(加功能前的行為),
+                //    絕不把「不知道」當 0 去扣。
+                Service.Materials.TryRankByNetStock(EligibleMaterials(candidates), TopScarce, MaterialLedger.HorizonTwoWeeks, _scarcityRanks, out var demandApplied);
                 // 次要項:工坊排程算出來的缺口,只在稀缺分數平手時才有作用。
                 // ⚠️ 需求檔的語意(兩週)取自 CS 註解、尚未實機驗證。
                 Service.Materials.CollectShortages(MaterialLedger.HorizonTwoWeeks, _shortages);
@@ -339,7 +366,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
                     if (newDestinations[0] == currentDestinations[1] || newDestinations[1] == currentDestinations[0])
                         Utils.Swap(ref newDestinations[0], ref newDestinations[1]); // 覆蓋集合的聯集不變,順手少送一次指令
 
-                    Service.Log.Information($"[Granary] cover-shortages picked {newDestinations[0]}/{newDestinations[1]}; scarcest={DescribeScarcest()}");
+                    Service.Log.Information($"[Granary] cover-shortages picked {newDestinations[0]}/{newDestinations[1]}; demandApplied={demandApplied}; scarcest(stock->net)={DescribeScarcest()}");
                 }
             }
         }
