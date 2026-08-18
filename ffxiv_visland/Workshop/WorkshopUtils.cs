@@ -45,8 +45,13 @@ public static unsafe class WorkshopUtils {
     }
 
     public static void ScheduleItemToWorkshop(uint objId, int startingHour, int cycle, int workshop) {
+        var mji = MJIManager.Instance();
+        if (mji == null) {
+            Service.Log.Information($"Not adding schedule ({objId} @ {startingHour}/{cycle}/{workshop}): MJIManager unavailable");
+            return;
+        }
         Service.Log.Info($"Adding schedule: {objId} @ {startingHour}/{cycle}/{workshop}");
-        MJIManager.Instance()->ScheduleCraft((ushort)objId, (byte)((startingHour + 17) % 24), (byte)cycle, (byte)workshop);
+        mji->ScheduleCraft((ushort)objId, (byte)((startingHour + 17) % 24), (byte)cycle, (byte)workshop);
     }
 
     // this is what the game uses to refresh the ui after adding schedules
@@ -128,9 +133,14 @@ public static unsafe class WorkshopUtils {
     }
 
     public static void RequestDemandFavours() {
+        var mji = MJIManager.Instance();
+        if (mji == null) {
+            Service.Log.Information("Not fetching demand & favours: MJIManager unavailable");
+            return;
+        }
         Service.Log.Info("Fetching demand & favours");
-        MJIManager.Instance()->RequestDemandFull();
-        MJIManager.Instance()->RequestFavorData();
+        mji->RequestDemandFull();
+        mji->RequestFavorData();
     }
 
     public static int GetMaxWorkshops() {
@@ -146,11 +156,15 @@ public static unsafe class WorkshopUtils {
 
     // ⚠️ 這支回傳的是 MJIManager 那份原始的「休息日編號清單」,只給 Debug 分頁原樣顯示用。
     // 要判斷某一天是不是休息日請用 GetRestCycleMask() —— 見上面的說明。
+    // 讀不到 MJIManager 時回空清單(不是 [0,0,0,0]) —— 呼叫端據此顯示「讀不到」而不是假的「全 0」。
     public static List<int> GetCurrentRestCycles() {
-        var restDays1 = MJIManager.Instance()->CraftworksRestDays[0];
-        var restDays2 = MJIManager.Instance()->CraftworksRestDays[1];
-        var restDays3 = MJIManager.Instance()->CraftworksRestDays[2];
-        var restDays4 = MJIManager.Instance()->CraftworksRestDays[3];
+        var mji = MJIManager.Instance();
+        if (mji == null)
+            return [];
+        var restDays1 = mji->CraftworksRestDays[0];
+        var restDays2 = mji->CraftworksRestDays[1];
+        var restDays3 = mji->CraftworksRestDays[2];
+        var restDays4 = mji->CraftworksRestDays[3];
 
         return [restDays1, restDays2, restDays3, restDays4];
     }

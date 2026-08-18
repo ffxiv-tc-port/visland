@@ -10,7 +10,11 @@ public unsafe class FarmDebug {
 
     public void Draw() {
         var mgr = MJIManager.Instance();
-        foreach (var n1 in _tree.Node($"State: level={mgr->IslandState.Farm.Level}, htc={mgr->IslandState.Farm.HoursToCompletion}, uc={mgr->IslandState.Farm.UnderConstruction}, efc={mgr->IslandState.Farm.EligibleForCare}", mgr->FarmState == null)) {
+        // MJIManager 是 isPointer 的靜態位址,登入前/不在無人島時是 null —— 標題字串本身就會解參考,所以判空要在組字串之前。
+        var mgrLabel = mgr == null
+            ? "State: MJIManager unavailable"
+            : $"State: level={mgr->IslandState.Farm.Level}, htc={mgr->IslandState.Farm.HoursToCompletion}, uc={mgr->IslandState.Farm.UnderConstruction}, efc={mgr->IslandState.Farm.EligibleForCare}";
+        foreach (var n1 in _tree.Node(mgrLabel, mgr == null || mgr->FarmState == null)) {
             _tree.LeafNode($"Expected total yield: {mgr->FarmState->ExpectedTotalYield}");
             _tree.LeafNode($"Layout state: {mgr->FarmState->LayoutInitialized} {mgr->FarmState->ReactionEventObjectRowId}");
             _tree.LeafNode($"Slot update: {mgr->FarmState->SlotUpdatePending} {mgr->FarmState->SlotUpdateIndex}");

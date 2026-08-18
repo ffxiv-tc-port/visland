@@ -25,10 +25,16 @@ internal unsafe class FavourReader(List<string> botNames) {
     }
 
     public string CreateFavourRequestCommand(bool nextWeek) {
-        var state = MJIManager.Instance()->FavorState;
-        if (state == null || state->UpdateState != 2) {
+        // MJIManager 是 isPointer 的靜態位址,登入前/不在無人島時是 null(同檔 ReadFavourState 已有同樣的判空)。
+        var mji = MJIManager.Instance();
+        if (mji == null)
+            throw new Exception("Favour data requires being on your island");
+        var state = mji->FavorState;
+        // ⚠️ 原本的錯誤訊息在 state == null 時會解參考 state->UpdateState —— 報錯路徑自己再炸一次。
+        if (state == null)
+            throw new Exception("Favour data not available yet");
+        if (state->UpdateState != 2)
             throw new Exception($"Favour data not available: {state->UpdateState}");
-        }
 
         var res = "/favors";
         var offset = nextWeek ? 6 : 3;
@@ -45,10 +51,18 @@ internal unsafe class FavourReader(List<string> botNames) {
     }
 
     public void EnsureDemandFavoursAvailable(List<Func<bool>> pendingActions) {
-        if (MJIManager.Instance()->DemandDirty) {
-            WorkshopUtils.RequestDemandFavours();
-            pendingActions.Add(() => !MJIManager.Instance()->DemandDirty && MJIManager.Instance()->FavorState->UpdateState == 2);
-        }
+        // 讀不到 MJIManager 就什麼都不排:後續的 ReadFavourState 會擲出「requires being on your island」,
+        // 由呼叫端既有的 try/catch 顯示。DemandDirty 為 false 時的行為與原本完全相同。
+        var mji = MJIManager.Instance();
+        if (mji == null || !mji->DemandDirty)
+            return;
+        WorkshopUtils.RequestDemandFavours();
+        // ⚠️ 這個輪詢 lambda 由 WorkshopOCImport.Draw() 的 TakeWhile 執行,外面沒有 try/catch。
+        // 讀不到就回 false(＝繼續等),不要解參考 —— 島上資料就緒後會自己接上。
+        pendingActions.Add(() => {
+            var m = MJIManager.Instance();
+            return m != null && !m->DemandDirty && m->FavorState != null && m->FavorState->UpdateState == 2;
+        });
     }
 
     public List<WorkshopSolver.WorkshopRec> SolveRecOverrides(bool nextWeek)
