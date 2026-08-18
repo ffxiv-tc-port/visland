@@ -252,14 +252,6 @@ unsafe class GranaryWindow : UIAttachedWindow {
     // ⚠️ 兩項是嚴格字典序比較(見 PickBest):次要項只在主導項相等時才看 -> 不會雙重計分。
     private const int TopScarce = 10;
 
-    private int ScarcityScore(ExpeditionCandidate c) {
-        var score = 0;
-        foreach (var pouchId in c.Materials)
-            if (_scarcityRanks.TryGetValue(pouchId, out var rank))
-                score += 1 << (TopScarce - 1 - rank);
-        return score;
-    }
-
     private int ShortageScore(ExpeditionCandidate c, HashSet<uint> remaining) {
         var n = 0;
         foreach (var pouchId in c.Materials)
