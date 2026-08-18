@@ -81,7 +81,7 @@ unsafe class ExportWindow : UIAttachedWindow {
                 if (!Service.Materials.DemandKnown || !Service.Materials.IncomingKnown) {
                     if (!_loggedLedgerUnavailable) {
                         _loggedLedgerUnavailable = true;
-                        Service.Log.Information($"[Export] workshop reserve is enabled but the material ledger is unavailable (demand={Service.Materials.DemandKnown}, incoming={Service.Materials.IncomingKnown}); falling back to the plain limits for this sale");
+                        Service.Log.Information($"[Export] workshop reserve is enabled but the material ledger is unavailable (demand={Service.Materials.DemandKnown}, demandLive={Service.Materials.DemandLive}, incoming={Service.Materials.IncomingKnown}); falling back to the plain limits for this sale");
                     }
                 }
             }

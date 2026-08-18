@@ -37,15 +37,37 @@ public sealed unsafe class MaterialLedger {
     public MaterialLedgerRow[] Rows = [];
 
     public bool IslandDataAvailable;   // MJIManager 拿得到
-    public bool DemandKnown;           // AgentMJICraftSchedule 的排程資料讀過了
+    // 🔴 需求是**兩段式**的,不要只看一個旗標:
+    //    DemandLive  = 這一幀真的讀得到 agent(製作預定表開著)
+    //    DemandKnown = 本次登入至少成功讀過一次,手上有值(可能是快照)
+    //    理由見 ReadDemand 的紅字:agent 的 Data 是短命的。
+    public bool DemandKnown;
+    public bool DemandLive;
     public bool StockKnown;            // 收納袋數量可信
     public bool GranaryKnown;
     public bool FarmKnown;
     public bool PastureKnown;
     public bool StockFrozen;           // 切區中 / 讀到全 0,保留上一次的快照
+    public bool DemandFrozen => DemandKnown && !DemandLive; // 顯示的是快照(與 StockFrozen 同款語意)
     public bool OnIsland;              // 在途數量只有站在島上才讀得到
+    // ⚠️ MaterialUse.Cycle 純診斷用,**不要拿來當有效性閘門**:實機看過 cycle=255
+    //    (哨兵形狀)但三個 totals 是真值的組合。而且它的編號與 MJIManager.CurrentCycleDay
+    //    (0~6)不是同一套,兩者不可互相比較。
     public byte DemandCycle;
+    public DateTime DemandSnapshotTime;      // 最後一次成功讀到需求的時刻
+    public byte DemandSnapshotCycleDay;      // 當時的 CurrentCycleDay
+    public bool DemandSnapshotCycleDayKnown;
+    public byte CurrentCycleDay;             // MJIManager.CurrentCycleDay,0~6(0 = 重置日)
+    public bool CurrentCycleDayKnown;
     public int IslandRank;
+
+    /// <summary>
+    /// 快照拍下來之後生產日已經換過 —— 需求在三個口徑之間的分布已經平移。
+    /// 🔑 刻意拿「快照當下的 CurrentCycleDay」對「現在的 CurrentCycleDay」比:同一個欄位、同一套編號。
+    ///    絕不拿 MaterialUse.Cycle 去對 CurrentCycleDay —— 那是兩套編號,比出來的結論是假的。
+    /// </summary>
+    public bool DemandSnapshotCrossedCycle => DemandFrozen && DemandSnapshotCycleDayKnown
+        && CurrentCycleDayKnown && DemandSnapshotCycleDay != CurrentCycleDay;
 
     private long _nextRefresh;
     private long _nextDemandLog;
@@ -76,19 +98,29 @@ public sealed unsafe class MaterialLedger {
         //    (既有呼叫端全是 UIAttachedWindow,只在遊戲內畫,所以踩不到)。
         //    未登入時那個靜態指標是 null,呼叫下去就是 this = null 的原生函式 —— AVE,try/catch 攔不到。
         if (!Service.ClientState.IsLoggedIn) {
-            IslandDataAvailable = DemandKnown = StockKnown = false;
+            IslandDataAvailable = StockKnown = false;
             GranaryKnown = FarmKnown = PastureKnown = false;
+            // 🔴 登出一定要把需求快照丟掉 —— 下一次登入可能是**別的角色**,
+            //    拿上一個角色的排程需求去算這個角色的缺口是靜默給錯答案。
+            ResetDemandSnapshot();
             return;
         }
 
         var mji = MJIManager.Instance();
         IslandDataAvailable = mji != null;
         if (mji == null) {
-            DemandKnown = StockKnown = GranaryKnown = FarmKnown = PastureKnown = false;
+            StockKnown = GranaryKnown = FarmKnown = PastureKnown = false;
+            // 這裡**不丟快照**:MJIManager 拿不到只是暫時讀不到,不代表換了角色(換角色走上面那條)。
+            DemandLive = false;
+            CurrentCycleDayKnown = false;
             return;
         }
 
         IslandRank = mji->IslandState.CurrentRank;
+        // 現在的生產日。這個欄位活在 MJIManager 上,不隨製作預定表關閉而消失 ——
+        // 快照的跨生產日判斷就是靠它(agent 上的 CycleInProgress/CycleDisplayed 會一起死掉,不能用)。
+        CurrentCycleDay = mji->CurrentCycleDay;
+        CurrentCycleDayKnown = true;
         ReadUnlocks(mji);
         ReadDemand();
         ReadStock(mji);
@@ -126,11 +158,23 @@ public sealed unsafe class MaterialLedger {
         var agent = AgentMJICraftSchedule.Instance();
         var data = agent != null ? agent->Data : null;
         if (data == null) {
-            DemandKnown = false;
+            // 🔴 讀不到 ≠ 沒有。AgentMJICraftSchedule.Data 是**短命的**:製作預定表關掉之後就變 null。
+            //    實機實證(2026-08-18):同一次登入先讀到 cycle=13 totals=[80, 646, 646],
+            //    使用者離開介面後再開耕地視窗,需求欄整片變成「未知」。
+            //    ⇒ 這裡刻意**不清空 Demand、也不把 DemandKnown 打回 false**,
+            //      沿用同檔 StockFrozen 的做法:保留上一次的快照,只放掉「本幀活著」。
+            //      從沒讀成功過的話 DemandKnown 本來就是 false,照舊走「未知」那條路。
+            // 🔴 絕不為了讓資料「自動載入」去主動初始化 agent 或呼叫未驗證的原生請求函式 ——
+            //    那是對執行中的遊戲做記憶體投機探測。鎖存快照已經足夠。
+            DemandLive = false;
             return;
         }
 
         DemandKnown = true;
+        DemandLive = true;
+        DemandSnapshotTime = DateTime.Now;
+        DemandSnapshotCycleDay = CurrentCycleDay;
+        DemandSnapshotCycleDayKnown = CurrentCycleDayKnown;
         DemandCycle = data->MaterialUse.Cycle;
         var entries = data->MaterialUse.Entries;
         var numEntries = Math.Min(DemandEntryCount, entries.Length);
@@ -278,6 +322,28 @@ public sealed unsafe class MaterialLedger {
     // 只是把「CS 的欄位偏移在台服對不上 -> 讀到一個很小的垃圾值」變成不做事,
     // 而不是拿去解參考。這不是防護,是把一整類靜默錯誤擋在門外。
     private static bool IsPlausible(void* p) => (nint)p > 0x10000;
+
+    private void ResetDemandSnapshot() {
+        DemandKnown = DemandLive = false;
+        DemandSnapshotCycleDayKnown = CurrentCycleDayKnown = false;
+        DemandSnapshotTime = default;
+        foreach (var row in Rows)
+            Array.Clear(row.Demand);
+    }
+
+    /// <summary>
+    /// 需求資料的新鮮度,給 tooltip 用的一段字。null = 活資料(沒什麼好交代的)。
+    /// 🔑 放在資料層而不是各自的 UI:同一件事在耕地視窗與缺料總表必須講一模一樣的話。
+    /// 🔴 新鮮度住 tooltip,不上列 —— 「知道(但是舊的)」仍然是知道,列上照常顯示數字。
+    /// </summary>
+    public string? DescribeDemandFreshness() {
+        if (!DemandFrozen)
+            return null;
+        var s = "Showing the snapshot taken at ?? (the Craftworks agenda is closed).".Loc(DemandSnapshotTime.ToString("HH:mm"));
+        if (DemandSnapshotCrossedCycle)
+            s += "\n" + "The production day has changed since then, so the split across the three ranges has shifted.".Loc();
+        return s;
+    }
 
     public bool GapKnown(MaterialLedgerRow row) => DemandKnown && StockKnown;
     public bool IncomingKnown => GranaryKnown && FarmKnown && PastureKnown;

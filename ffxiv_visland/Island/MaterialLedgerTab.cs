@@ -55,7 +55,13 @@ public sealed class MaterialLedgerTab {
         }
         if (!_ledger.DemandKnown) {
             using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
-                ImGui.TextUnformatted("Workshop agenda data has not been read yet - demand is shown as ?.".Loc());
+                ImGui.TextUnformatted("The workshop agenda has not been read yet - open the Craftworks agenda once and the numbers will stay.".Loc());
+        }
+        else if (_ledger.DemandFrozen) {
+            // 快照仍然是「知道」,所以列上照常給數字;這一行只是交代它有多舊。
+            using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
+                ImGui.TextUnformatted("Workshop demand is a snapshot from ?? - reopen the Craftworks agenda to refresh.".Loc(
+                    _ledger.DemandSnapshotTime.ToString("HH:mm")));
         }
         if (_ledger.StockFrozen) {
             using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
@@ -267,7 +273,9 @@ public sealed class MaterialLedgerTab {
         if (_ledger.DemandKnown)
             sb.Append("Demand - cycle ??, week ??, week + next ??".Loc(row.Demand[0], row.Demand[1], row.Demand[2])).Append('\n');
         else
-            sb.Append("Demand unknown - the workshop agenda has not been read this session.".Loc()).Append('\n');
+            sb.Append("The workshop agenda has not been read yet - open the Craftworks agenda once and the numbers will stay.".Loc()).Append('\n');
+        if (_ledger.DescribeDemandFreshness() is { } freshness)
+            sb.Append(freshness).Append('\n');
         sb.Append(_ledger.StockKnown
             ? "In pouch: ??".Loc(row.Stock)
             : "Pouch count unknown.".Loc()).Append('\n');

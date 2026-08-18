@@ -181,7 +181,7 @@ public unsafe class FarmWindow : UIAttachedWindow {
             using (ImRaii.PushColor(ImGuiCol.Text, ColUnknown))
                 ImGui.TextUnformatted("?");
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Demand unknown - the workshop agenda has not been read this session.".Loc());
+                ImGui.SetTooltip("The workshop agenda has not been read yet - open the Craftworks agenda once and the numbers will stay.".Loc());
             return;
         }
 
@@ -210,6 +210,9 @@ public unsafe class FarmWindow : UIAttachedWindow {
         sb.Append('\n');
         sb.Append("The number on the row is the two-week demand. The three bucket names come from client struct comments and have not been verified in game yet.".Loc()).Append('\n');
         sb.Append("It turns red while the workshop still needs more than your pouch holds plus everything already on its way.".Loc());
+        // 新鮮度是「為什麼」不是「有沒有問題」 -> 住 tooltip。
+        if (ledger.DescribeDemandFreshness() is { } freshness)
+            sb.Append('\n').Append('\n').Append(freshness);
         ImGui.SetTooltip(sb.ToString());
     }
 
