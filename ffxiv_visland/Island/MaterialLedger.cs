@@ -328,6 +328,18 @@ public sealed unsafe class MaterialLedger {
         return true;
     }
 
+    /// <summary>
+    /// 依 Item 列號取回對應的材料列(耕地收成物 -> MJIItemPouch)。查不到回 null。
+    /// 🔴 不可以拿「回傳的 pouchId 是 0」當查無 —— 第 0 列是真材料(無人島棕櫚葉)。
+    /// ⚠️ Rows 還沒建起來時也回 null,所以呼叫端必須自己先分辨
+    ///    「這個道具工坊用不到」與「材料表根本還沒建好」—— 兩者畫成同一個記號會說謊。
+    /// </summary>
+    public MaterialLedgerRow? RowByItemId(uint itemId) {
+        if (itemId == 0 || !MaterialSources.TryGetPouchIdByItemId(itemId, out var pouchId))
+            return null;
+        return pouchId < Rows.Length ? Rows[(int)pouchId] : null;
+    }
+
     public int StockOf(uint pouchId) => pouchId < Rows.Length ? Rows[(int)pouchId].Stock : 0;
 
     /// <summary>
