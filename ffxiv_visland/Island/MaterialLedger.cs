@@ -73,6 +73,7 @@ public sealed unsafe class MaterialLedger {
     private long _nextDemandLog;
     private (int, int, int) _lastLoggedDemand = (-1, -1, -1);
     private bool _everSawStock;
+    private ulong _demandSnapshotOwner;   // 快照是哪個角色的(ContentId);0 = 沒有快照
     private bool _loggedToolMismatch;
 
     private const int RefreshIntervalMs = 500;
@@ -105,6 +106,16 @@ public sealed unsafe class MaterialLedger {
             ResetDemandSnapshot();
             return;
         }
+
+        // 🔴 快照蓋角色章。使用者跑多角循環(AutoRetainer),拿上一個角色的排程需求去算
+        //    這個角色的缺口是靜默給錯答案。刻意**不掛 ClientState.Logout 事件** ——
+        //    那需要在 Dispose 裡解註冊,而無防護的 Dispose 是艦隊已知的崩潰形狀。
+        //    這個寫法自足:就算切角色期間 Refresh 一次都沒跑到,下一次 Refresh 也必然先撞到比對。
+        // ⚠️ 必須在登入閘門**之後**做 —— 未登入時 LocalContentId 是 0,0 不是有效的 owner。
+        //    登入著卻讀到 0 表示我們無法確認擁有者,一律當成章不對 -> 作廢(往安全的方向倒)。
+        var owner = Service.ClientState.LocalContentId;
+        if (DemandKnown && (owner == 0 || owner != _demandSnapshotOwner))
+            ResetDemandSnapshot();
 
         var mji = MJIManager.Instance();
         IslandDataAvailable = mji != null;
@@ -175,6 +186,7 @@ public sealed unsafe class MaterialLedger {
         DemandSnapshotTime = DateTime.Now;
         DemandSnapshotCycleDay = CurrentCycleDay;
         DemandSnapshotCycleDayKnown = CurrentCycleDayKnown;
+        _demandSnapshotOwner = Service.ClientState.LocalContentId;
         DemandCycle = data->MaterialUse.Cycle;
         var entries = data->MaterialUse.Entries;
         var numEntries = Math.Min(DemandEntryCount, entries.Length);
@@ -327,6 +339,7 @@ public sealed unsafe class MaterialLedger {
         DemandKnown = DemandLive = false;
         DemandSnapshotCycleDayKnown = CurrentCycleDayKnown = false;
         DemandSnapshotTime = default;
+        _demandSnapshotOwner = 0;
         foreach (var row in Rows)
             Array.Clear(row.Demand);
     }
