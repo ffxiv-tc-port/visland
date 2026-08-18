@@ -113,7 +113,7 @@ public sealed unsafe class MaterialLedger {
         //    這個寫法自足:就算切角色期間 Refresh 一次都沒跑到,下一次 Refresh 也必然先撞到比對。
         // ⚠️ 必須在登入閘門**之後**做 —— 未登入時 LocalContentId 是 0,0 不是有效的 owner。
         //    登入著卻讀到 0 表示我們無法確認擁有者,一律當成章不對 -> 作廢(往安全的方向倒)。
-        var owner = Service.ClientState.LocalContentId;
+        var owner = Service.PlayerState.ContentId;
         if (DemandKnown && (owner == 0 || owner != _demandSnapshotOwner))
             ResetDemandSnapshot();
 
@@ -186,7 +186,7 @@ public sealed unsafe class MaterialLedger {
         DemandSnapshotTime = DateTime.Now;
         DemandSnapshotCycleDay = CurrentCycleDay;
         DemandSnapshotCycleDayKnown = CurrentCycleDayKnown;
-        _demandSnapshotOwner = Service.ClientState.LocalContentId;
+        _demandSnapshotOwner = Service.PlayerState.ContentId;
         DemandCycle = data->MaterialUse.Cycle;
         var entries = data->MaterialUse.Entries;
         var numEntries = Math.Min(DemandEntryCount, entries.Length);

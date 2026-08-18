@@ -16,8 +16,8 @@ namespace visland.Helpers;
 
 public static unsafe class Player {
     [MemberNotNullWhen(true, nameof(Object))]
-    public static bool Available => Service.ClientState.LocalPlayer is { IsDead: false };
-    public static IGameObject? Object => Service.ClientState.LocalPlayer;
+    public static bool Available => Service.ObjectTable.LocalPlayer is { IsDead: false };
+    public static IGameObject? Object => Service.ObjectTable.LocalPlayer;
     public static Vector3 Position => Object?.Position ?? default;
     public static ulong CID => PlayerState.Instance()->ContentId;
     public static uint Job => PlayerState.Instance()->CurrentClassJobId;
@@ -26,7 +26,7 @@ public static unsafe class Player {
     public static bool Mounting => Service.Condition[ConditionFlag.Mounting];
     public static bool IsJumping => Service.Condition[ConditionFlag.Jumping];
     public static bool IsCasting => Service.Condition[ConditionFlag.Casting];
-    public static IEnumerable<Dalamud.Game.ClientState.Statuses.Status> Status => Service.ClientState.LocalPlayer?.StatusList is { } list ? list : [];
+    public static IEnumerable<Dalamud.Game.ClientState.Statuses.Status> Status => Service.ObjectTable.LocalPlayer?.StatusList is { } list ? list : [];
     public static bool Normal => Service.Condition[ConditionFlag.NormalConditions];
     public static bool ExclusiveFlying => Service.Condition[ConditionFlag.InFlight];
     public static bool InclusiveFlying => Service.Condition[ConditionFlag.InFlight] || Service.Condition[ConditionFlag.Diving];
@@ -37,8 +37,8 @@ public static unsafe class Player {
     public static float FoodCD => Status.FirstOrDefault(s => s.StatusId == 48)?.RemainingTime ?? 0;
     public static float AnimationLock => ActionManager.Instance()->AnimationLock;
     public static bool InGatheringAnimation => Service.Condition[ConditionFlag.ExecutingGatheringAction];
-    public static uint Gp => Service.ClientState.LocalPlayer?.CurrentGp ?? 0;
-    public static uint MaxGp => Service.ClientState.LocalPlayer?.MaxGp ?? 0;
+    public static uint Gp => Service.ObjectTable.LocalPlayer?.CurrentGp ?? 0;
+    public static uint MaxGp => Service.ObjectTable.LocalPlayer?.MaxGp ?? 0;
     public static int Gathering => PlayerState.Instance()->Attributes[72];
     public static int Perception => PlayerState.Instance()->Attributes[73];
     public static bool IsOnIsland => MJIManager.Instance() != null && MJIManager.Instance()->IsPlayerInSanctuary;

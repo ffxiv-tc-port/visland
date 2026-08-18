@@ -113,7 +113,7 @@ public sealed class Plugin : IDalamudPlugin {
     }
 
     internal void MoveToCommand(string[] args, bool relativeToPlayer) {
-        var originActor = relativeToPlayer ? Service.ClientState.LocalPlayer : null;
+        var originActor = relativeToPlayer ? Service.ObjectTable.LocalPlayer : null;
         var origin = originActor?.Position ?? new();
         var offset = new Vector3(float.Parse(args[1], CultureInfo.InvariantCulture), float.Parse(args[2], CultureInfo.InvariantCulture), float.Parse(args[3], CultureInfo.InvariantCulture));
         var route = new GatherRouteDB.Route { Name = "Temporary", Waypoints = [] };

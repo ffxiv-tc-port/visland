@@ -52,13 +52,13 @@ public unsafe class GatherDebug(GatherRouteExec exec) {
         if (Service.TargetManager.Target != null) {
             Utils.DrawSection("Target", ImGuiColors.ParsedGold);
             var t = Service.TargetManager.Target;
-            if (GatheringPoint.GetRow(t.DataId) is { } gp) {
+            if (GatheringPoint.GetRow(t.BaseId) is { } gp) {
                 ImGui.Text($"IsNode: {gp}");
                 if (gp.GatheringPointBase.IsValid)
                     ImGui.Text($"GatheringType: {gp.GatheringPointBase.Value.GatheringType.RowId}");
             }
             else
-                ImGui.Text($"Not a GatheringPoint (BaseId={t.DataId})");
+                ImGui.Text($"Not a GatheringPoint (BaseId={t.BaseId})");
         }
         if (exec.CurrentRoute is { TargetGatherItem: not 0 } && Item.GetRow((uint)exec.CurrentRoute.TargetGatherItem) is { } item) {
             Utils.DrawSection("Target Item", ImGuiColors.ParsedGold);

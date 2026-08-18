@@ -326,7 +326,7 @@ public class GatherWindow : Window {
             ImGui.SameLine();
             if (ImGuiComponents.IconButton(FontAwesomeIcon.Plus)) {
                 Exec.Finish();
-                var player = Service.ClientState.LocalPlayer;
+                var player = Service.ObjectTable.LocalPlayer;
                 if (player != null) {
                     route.Waypoints.Add(new() { Position = player.Position, Radius = RouteDB.DefaultWaypointRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType });
                     RouteDB.NotifyModified();
@@ -337,7 +337,7 @@ public class GatherWindow : Window {
             if (ImGuiComponents.IconButton(FontAwesomeIcon.UserPlus)) {
                 var target = Service.TargetManager.Target;
                 if (target != null) {
-                    route.Waypoints.Add(new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.DataId, InteractWithName = target.Name.ToString().ToLower() });
+                    route.Waypoints.Add(new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.BaseId, InteractWithName = target.Name.ToString().ToLower() });
                     RouteDB.NotifyModified();
                     Exec.Start(route, route.Waypoints.Count - 1, false, false);
                 }
@@ -464,7 +464,7 @@ public class GatherWindow : Window {
                     wp.Position = target.Position;
                     wp.Radius = RouteDB.DefaultInteractionRadius;
                     wp.InteractWithName = target.Name.ToString().ToLower();
-                    wp.InteractWithOID = target.DataId;
+                    wp.InteractWithOID = target.BaseId;
                     RouteDB.NotifyModified();
                 }
             }
@@ -540,7 +540,7 @@ public class GatherWindow : Window {
 
         if (ImGui.MenuItem("Swap to ??".Loc((r.Waypoints[i].InteractWithOID != default ? "normal waypoint" : "interact waypoint").Loc()))) {
             _postDraw.Add(() => {
-                r.Waypoints[i].InteractWithOID = r.Waypoints[i].InteractWithOID != default ? default : target?.DataId ?? default;
+                r.Waypoints[i].InteractWithOID = r.Waypoints[i].InteractWithOID != default ? default : target?.BaseId ?? default;
                 RouteDB.NotifyModified();
             });
         }
@@ -550,7 +550,7 @@ public class GatherWindow : Window {
                 if (i > 0 && i < r.Waypoints.Count) {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
-                    if (Service.ClientState.LocalPlayer != null) {
+                    if (Service.ObjectTable.LocalPlayer != null) {
                         r.Waypoints.Insert(i, new() { Position = Player.Position, Radius = RouteDB.DefaultWaypointRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType });
                         RouteDB.NotifyModified();
                     }
@@ -563,7 +563,7 @@ public class GatherWindow : Window {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
                     if (target != null) {
-                        r.Waypoints.Insert(i, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.DataId, InteractWithName = target.Name.ToString().ToLower() });
+                        r.Waypoints.Insert(i, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.BaseId, InteractWithName = target.Name.ToString().ToLower() });
                         RouteDB.NotifyModified();
                     }
                 }
@@ -575,7 +575,7 @@ public class GatherWindow : Window {
                 if (i > 0 && i < r.Waypoints.Count) {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
-                    if (Service.ClientState.LocalPlayer != null) {
+                    if (Service.ObjectTable.LocalPlayer != null) {
                         r.Waypoints.Insert(i + 1, new() { Position = Player.Position, Radius = RouteDB.DefaultWaypointRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType });
                         RouteDB.NotifyModified();
                     }
@@ -588,7 +588,7 @@ public class GatherWindow : Window {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
                     if (target != null) {
-                        r.Waypoints.Insert(i + 1, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.DataId, InteractWithName = target.Name.ToString().ToLower() });
+                        r.Waypoints.Insert(i + 1, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.BaseId, InteractWithName = target.Name.ToString().ToLower() });
                         RouteDB.NotifyModified();
                     }
                 }
