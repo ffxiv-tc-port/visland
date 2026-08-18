@@ -34,7 +34,13 @@ public unsafe class WorkshopDebug {
         var curWeek = WorkshopUtils.CurrentWeek();
         _tree.LeafNode($"Current week: #{curWeek.index}, started at {curWeek.startTime}");
 
-        var ad = AgentMJICraftSchedule.Instance()->Data;
+        // AgentMJICraftSchedule.Instance() 是產生器產出的取得子,AgentModule 還沒好時回 null。
+        // 取不到就讓 ad 維持 null,交給下面既有的 ad == null 分支顯示「取不到」,
+        // 不提早 return——後面的人氣/優待資料與 agent 無關,照樣要畫。
+        var agent = AgentMJICraftSchedule.Instance();
+        AgentMJICraftSchedule.ScheduleData* ad = null;
+        if (agent != null)
+            ad = agent->Data;
         var sheet = MJICraftworksObject.Get(Dalamud.Game.ClientLanguage.English);
         foreach (var na in _tree.Node($"Agent data: {(nint)ad:X}", ad == null)) {
             _tree.LeafNode($"updatestate={ad->UpdateState}, level={ad->IslandLevel}");
