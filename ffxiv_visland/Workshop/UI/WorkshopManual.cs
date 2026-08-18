@@ -65,7 +65,17 @@ public class WorkshopManual {
     }
 
     private unsafe void AddToScheduleSingle(MJICraftworksObject row, int workshopIndex) {
-        var agentData = AgentMJICraftSchedule.Instance()->Data;
+        // 🔴 原本是 AgentMJICraftSchedule.Instance()->Data 兩層裸讀,只靠「這個分頁畫得出來就
+        //    代表 PreOpenCheck 過了」這個別處建立的前提。改成本地判空:取不到就安靜返回。
+        //    這裡刻意不用 ReportError —— AddToSchedule 一次會呼叫本方法最多四次,
+        //    走聊天視窗會變成連噴四行。
+        var agent = AgentMJICraftSchedule.Instance();
+        if (agent == null || agent->Data == null) {
+            Service.Log.Information($"Not scheduling {row.RowId} to workshop {workshopIndex + 1}: craft schedule agent/data unavailable");
+            return;
+        }
+
+        var agentData = agent->Data;
         var slotMask = (1u << row.CraftingTime) - 1;
         var startingCycle = 0;
         var maxCycle = 24 - row.CraftingTime;

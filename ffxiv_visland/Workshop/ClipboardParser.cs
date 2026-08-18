@@ -40,7 +40,18 @@ internal unsafe class ClipboardParser(ExcelSheet<MJICraftworksObject> craftSheet
             else
                 Service.Log.Verbose($"Failed to parse {l}");
         }
-        result.Add(curCycle > 0 ? curCycle : (AgentMJICraftSchedule.Instance()->Data->CycleInProgress + 2) % 8, curRec);
+        // 🔴 原本是 AgentMJICraftSchedule.Instance()->Data->CycleInProgress 兩層裸讀,而且只有在
+        //    剪貼簿內容沒帶週期編號(curCycle <= 0)時才真的用得到。判空就擺在真正要用的那一刻:
+        //    讀不到就丟一個講得清楚的例外,由既有的 ImportRecsFromClipboard try/catch 顯示給
+        //    使用者(失敗形式=匯入失敗並說明原因,不是崩潰,也不是靜默排到錯的週期)。
+        var lastCycle = curCycle;
+        if (lastCycle <= 0) {
+            var agent = AgentMJICraftSchedule.Instance();
+            if (agent == null || agent->Data == null)
+                throw new Exception("Craft schedule data is unavailable - open the workshop schedule window and try again");
+            lastCycle = (agent->Data->CycleInProgress + 2) % 8;
+        }
+        result.Add(lastCycle, curRec);
 
         return result;
     }

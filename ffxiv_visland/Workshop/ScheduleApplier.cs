@@ -24,7 +24,18 @@ internal class ScheduleApplier {
     }
 
     public unsafe void ApplyRecommendationToCurrentCycle(WorkshopSolver.DayRec rec) {
-        var agentData = AgentMJICraftSchedule.Instance()->Data;
+        // 🔴 原本是 AgentMJICraftSchedule.Instance()->Data 兩層裸讀。agent 在 UIModule 未建立時
+        //    回 null,Data 則在製作預定表關掉之後變 null。這個 public 方法目前唯一的呼叫端
+        //    (WorkshopOCImport 的「Set on Active Cycle」按鈕)沒有 try/catch,而且上游的保護
+        //    是 WorkshopWindow.PreOpenCheck —— 那是別處建立的前提,新的呼叫點可以繞過去。
+        //    取不到就安靜返回(留一行 Information),不動作而不是崩潰。
+        var agent = AgentMJICraftSchedule.Instance();
+        if (agent == null || agent->Data == null) {
+            Service.Log.Information("Not applying recommendation: craft schedule agent/data unavailable");
+            return;
+        }
+
+        var agentData = agent->Data;
         var cycle = agentData->CycleDisplayed;
         var minHour = cycle == agentData->CycleInProgress ? agentData->HourSinceCycleStart : 0;
         ApplyRecommendation(cycle, rec, minHour);
@@ -32,7 +43,17 @@ internal class ScheduleApplier {
     }
 
     public unsafe void ApplyRecommendations(WorkshopSolver.Recs recommendations, bool nextWeek) {
-        var agentData = AgentMJICraftSchedule.Instance()->Data;
+        // 同 ApplyRecommendationToCurrentCycle:本地判空,不依賴呼叫端的 PreOpenCheck。
+        // agentData 底下被無條件用到(CycleInProgress / HourSinceCycleStart / RestCycles),
+        // 所以擋在方法開頭;取不到就安靜返回,不丟例外 —— 這條路徑的呼叫端雖然有 try/catch,
+        // 但「介面沒開」不是使用者做錯了什麼,不值得跳一則紅字錯誤。
+        var agent = AgentMJICraftSchedule.Instance();
+        if (agent == null || agent->Data == null) {
+            Service.Log.Information("Not applying recommendations: craft schedule agent/data unavailable");
+            return;
+        }
+
+        var agentData = agent->Data;
         var restDaysCount = BitOperations.PopCount(~recommendations.CyclesMask & 0x7F);
         if (recommendations.Schedules.Count + restDaysCount > 7)
             throw new Exception($"Too many days in recs: {recommendations.Schedules.Count} crafts + {restDaysCount} rest > 7");

@@ -49,7 +49,11 @@ unsafe class WorkshopWindow : UIAttachedWindow {
 
     public override void OnOpen() {
         if (_config.AutoOpenNextDay) {
-            WorkshopUtils.SetCurrentCycle(AgentMJICraftSchedule.Instance()->Data->CycleInProgress + 1);
+            // 與同資料夾其他 Workshop 檔同一批加固:OnOpen 只在 PreOpenCheck 讓 IsOpen 翻正時才跑,
+            // 但那是別處建立的前提。本地再判一次,取不到就不切週期(視窗照常開)。
+            var agent = AgentMJICraftSchedule.Instance();
+            if (agent != null && agent->Data != null)
+                WorkshopUtils.SetCurrentCycle(agent->Data->CycleInProgress + 1);
         }
         if (_config.FavourMode == FavourMode.MinMaxFreeRestDay)
             WorkshopUtils.RelaxSecondRestThisWeek();
