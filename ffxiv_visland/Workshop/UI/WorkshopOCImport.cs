@@ -224,7 +224,7 @@ public unsafe class WorkshopOCImport {
         // earliestFirst 時它同時也是請求整合的輸入,所以不會多算一次。
         var withoutFavours = archiveRecs;
         if (_config.FillEmptyDays && (earliestFirst || applyFavours)) {
-            withoutFavours = WorkshopDayFiller.Fill(archiveRecs, nextWeek, _craftSheet, out var preFill);
+            withoutFavours = WorkshopDayFiller.Fill(archiveRecs, nextWeek, _craftSheet, _config.SurplusPreferencePercent, out var preFill);
             if (earliestFirst)
                 LogFillReport(preFill);
         }
@@ -237,7 +237,7 @@ public unsafe class WorkshopOCImport {
         // 自己會動封存的休息日,先跑它才知道最後到底哪幾天還是空的。
         // earliestFirst 時順序相反(上面已經補過),代價是補天解算器看不到請求會佔掉哪一格。
         if (_config.FillEmptyDays && !earliestFirst) {
-            Recommendations = WorkshopDayFiller.Fill(Recommendations, nextWeek, _craftSheet, out var report);
+            Recommendations = WorkshopDayFiller.Fill(Recommendations, nextWeek, _craftSheet, _config.SurplusPreferencePercent, out var report);
             LogFillReport(report);
         }
 
@@ -258,12 +258,18 @@ public unsafe class WorkshopOCImport {
 
     private void LogFillReport(WorkshopDayFiller.Report report) {
         _fillReport = report;
+        // 偏好開了卻沒生效是實機回報最需要的一行 —— 讓 log 自己講,不要等使用者去猜。
+        var surplus = report.SurplusPreferencePercent <= 0
+            ? "surplus-pref off"
+            : report.SurplusApplied
+                ? $"surplus-pref {report.SurplusPreferencePercent}% applied"
+                : $"surplus-pref {report.SurplusPreferencePercent}% NOT applied ({report.SurplusUnavailableReason})";
         if (report.Filled)
             Service.Log.Information($"[fill-empty-days] filled {WorkshopDayFiller.FormatCycles(report.FilledCycles)} across {report.Workshops} workshop(s): " +
                 $"added value {report.AddedValue:F0} vs archive average {report.ArchiveValuePerDay:F0}/day over {report.ArchiveDays} day(s) " +
-                $"= {(report.ArchiveValuePerDay > 0 ? report.AddedValue / report.ArchiveValuePerDay : 0):F2} archive-days worth");
+                $"= {(report.ArchiveValuePerDay > 0 ? report.AddedValue / report.ArchiveValuePerDay : 0):F2} archive-days worth; {surplus}");
         else
-            Service.Log.Information($"[fill-empty-days] nothing added: {report.SkipReason}");
+            Service.Log.Information($"[fill-empty-days] nothing added: {report.SkipReason}; {surplus}");
     }
 
     // 季號對位:算出來的季號 vs 遊戲實際的受歡迎度列號。
@@ -288,6 +294,12 @@ public unsafe class WorkshopOCImport {
     private void DrawFillReport() {
         if (_fillReport is not { } r)
             return;
+        // 🔴 使用者開了偏好卻沒生效,必須在列上看得見(不是塞 tooltip)——
+        //    否則他會以為排程已經把手上的材料考慮進去了,而那正是他開這個選項的目的。
+        if (r.SurplusPreferencePercent > 0 && !r.SurplusApplied)
+            ImGui.TextColored(new Vector4(1f, 0.7f, 0.2f, 1f),
+                "Surplus-material preference not applied: ??".Loc(r.SurplusUnavailableReason ?? "?"));
+
         if (!r.Filled) {
             if (r.SkipReason != null)
                 ImGui.TextColored(new Vector4(0.65f, 0.65f, 0.65f, 1f), "Empty cycles not filled: ??".Loc(r.SkipReason));

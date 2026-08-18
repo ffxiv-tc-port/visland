@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using visland.Helpers;
+using visland.Island;
 
 namespace visland.Workshop;
 
@@ -26,6 +27,12 @@ namespace visland.Workshop;
 // 工房等級加成(MJICraftworksRankRatio)與熱度(groove)對所有候選是同一個乘數,
 // 不影響排序,故不納入 —— 但也因此這裡算出來的是**相對值**,不是實際貝殼幣。
 //
+// ⚠️ 上面那句「沒有寫死的魔術數字」有一個例外:**過剩材料偏好**
+//    (WorkshopConfig.SurplusPreferencePercent)是使用者參數,不是遊戲資料。
+//    它只乘進**挑選用**的分數,不進 Report 的價值評分 —— 評分那把尺仍然是純貝殼幣相對值,
+//    所以偏好付出的代價會如實顯示在報告與 log 裡,而不是被自己的偏好粉飾掉。
+//    預設 0 = 完全不偏好。
+//
 // 🔑 封存那 5 天造成的市場需求下降必須先累加進來,再解空的兩天,否則會重複挑同一批物品。
 public static unsafe class WorkshopDayFiller {
     public const int HoursPerCycle = 24;
@@ -38,6 +45,13 @@ public static unsafe class WorkshopDayFiller {
         public int ArchiveDays;
         public int Workshops;
         public string? SkipReason;          // 非 null = 這次沒有補,原因在這
+
+        // 過剩材料偏好的狀態。🔴 刻意不塞進 SkipReason:那個代表「整個沒補」,
+        //    而偏好用不了的時候補天照常進行,只是退回純價值解 —— 兩件事混在一起 UI 會講錯話。
+        public int SurplusPreferencePercent;     // 使用者設定的強度(0 = 沒開)
+        public bool SurplusApplied;              // 偏好真的生效了
+        public string? SurplusUnavailableReason; // 非 null = 想偏好但材料資料讀不到
+
         public bool Filled => FilledCycles.Count > 0;
     }
 
@@ -48,7 +62,7 @@ public static unsafe class WorkshopDayFiller {
     }
 
     // 解算封存排程沒填的生產日。傳入的 recs 不會被就地修改;回傳新的一份。
-    public static WorkshopSolver.Recs Fill(WorkshopSolver.Recs recs, bool nextWeek, ExcelSheet<MJICraftworksObject> sheet, out Report report) {
+    public static WorkshopSolver.Recs Fill(WorkshopSolver.Recs recs, bool nextWeek, ExcelSheet<MJICraftworksObject> sheet, int surplusPreferencePercent, out Report report) {
         report = new Report();
         if (recs.Empty) {
             report.SkipReason = "no schedule loaded";
@@ -101,6 +115,21 @@ public static unsafe class WorkshopDayFiller {
         for (var i = 0u; i <= maxId; ++i)
             baseBucket[i] = i < 91 ? (int)mji->GetSupplyForCraftwork(i) : 2;
 
+        // 過剩材料偏好的準備。🔴 三態:庫存或需求任一讀不到就完全不偏好(照原本的純價值解),
+        //    並把原因寫進 Report 讓 UI 畫得出來 —— 絕不把「不知道」當成「沒有需求所以全是過剩」,
+        //    那會解出一份看起來很合理、其實建立在猜測上的排程。
+        report.SurplusPreferencePercent = surplusPreferencePercent;
+        int[]? surplusBudget = null;
+        (uint PouchId, int Amount)[][]? craftMats = null;
+        if (surplusPreferencePercent > 0) {
+            surplusBudget = BuildSurplusBudget(out var surplusReason);
+            report.SurplusUnavailableReason = surplusReason;
+            report.SurplusApplied = surplusBudget != null;
+            if (surplusBudget != null)
+                craftMats = BuildCraftMaterials(sheet, maxId);
+        }
+        var surplusStrength = surplusBudget != null ? surplusPreferencePercent / 100f : 0f;
+
         // 主題連結表(2 倍效率加成的判定),81x81 個 bool,建一次就好
         var linked = BuildLinkTable(catalog, sheet);
         var popMult = new float[catalog.Length];
@@ -112,9 +141,14 @@ public static unsafe class WorkshopDayFiller {
         foreach (var (cycle, day) in recs.Enumerate()) {
             days[cycle] = day;
             foreach (var (_, w) in day.Enumerate(maxWorkshops))
-                foreach (var slot in w.Slots)
+                foreach (var slot in w.Slots) {
                     if (slot.CraftObjectId <= maxId)
                         counts[slot.CraftObjectId]++;
+                    // 🔑 封存那 5 天已經排定要吃掉的材料先扣掉 —— 方向與上面「封存產量先累加進
+                    //    市場需求」完全一致:不先扣就會把同一批材料當成還能再用一次。
+                    if (craftMats != null && surplusBudget != null && slot.CraftObjectId < craftMats.Length)
+                        ConsumeSurplus(craftMats[slot.CraftObjectId], surplusBudget);
+                }
         }
         report.ArchiveDays = days.Count;
 
@@ -125,12 +159,17 @@ public static unsafe class WorkshopDayFiller {
                 continue;
             var day = new WorkshopSolver.DayRec();
             for (var w = 0; w < maxWorkshops; ++w) {
-                var plan = SolveWorkshop(catalog, popMult, linked, counts, baseBucket, supplyRatios, craftsPerStep);
+                // 逐工房重算:第一間工房吃掉的過剩額度,第二間解算時就不該再看得到。
+                var surplusMult = BuildSurplusMultipliers(catalog, craftMats, surplusBudget, surplusStrength);
+                var plan = SolveWorkshop(catalog, popMult, linked, counts, baseBucket, supplyRatios, craftsPerStep, surplusMult);
                 if (plan.Slots.Count == 0)
                     break;
                 day.Workshops.Add(plan);
-                foreach (var slot in plan.Slots)
+                foreach (var slot in plan.Slots) {
                     counts[slot.CraftObjectId]++;
+                    if (craftMats != null && surplusBudget != null && slot.CraftObjectId < craftMats.Length)
+                        ConsumeSurplus(craftMats[slot.CraftObjectId], surplusBudget);
+                }
             }
             if (day.Empty)
                 continue;
@@ -293,7 +332,7 @@ public static unsafe class WorkshopDayFiller {
     // 單一工房的 24 小時排程 —— 狀態是(已用時數, 上一件物品),轉移是「再排一件」。
     // 之所以只要記「上一件」,是因為效率加成只看相鄰兩件是否同主題。
     // 規模:25 小時 x (81+1) 個上一件 x 81 個轉移 ≈ 16 萬次,按一次按鈕跑一次,不在每幀路徑上。
-    private static WorkshopSolver.WorkshopRec SolveWorkshop(Craft[] catalog, float[] popMult, bool[,] linked, int[] counts, int[] baseBucket, int[] supplyRatios, int craftsPerStep) {
+    private static WorkshopSolver.WorkshopRec SolveWorkshop(Craft[] catalog, float[] popMult, bool[,] linked, int[] counts, int[] baseBucket, int[] supplyRatios, int craftsPerStep, float[]? surplusMult) {
         var n = catalog.Length;
         var width = n + 1; // 0 = 還沒排任何東西
         var states = (HoursPerCycle + 1) * width;
@@ -306,7 +345,8 @@ public static unsafe class WorkshopDayFiller {
 
         var slotValue = new float[n];
         for (var i = 0; i < n; ++i)
-            slotValue[i] = popMult[i] * SupplyMultiplier(catalog[i].Id, counts, baseBucket, supplyRatios, craftsPerStep);
+            slotValue[i] = popMult[i] * SupplyMultiplier(catalog[i].Id, counts, baseBucket, supplyRatios, craftsPerStep)
+                * (surplusMult != null ? surplusMult[i] : 1f);
 
         for (var hour = 0; hour < HoursPerCycle; ++hour) {
             for (var last = 0; last < width; ++last) {
@@ -356,6 +396,91 @@ public static unsafe class WorkshopDayFiller {
             slot += catalog[i].Time;
         }
         return rec;
+    }
+
+    // 過剩 = 收納袋現有 − 工坊排程兩週需求,取正值。與屯貨倉庫派遣、缺料總表共用同一把尺。
+    // 🔴 庫存或需求任一讀不到就回 null,呼叫端完全不偏好 —— 把「不知道」當 0 會讓每一種材料
+    //    都看起來過剩,那比不偏好糟得多。
+    private static int[]? BuildSurplusBudget(out string? reason) {
+        var ledger = Service.Materials;
+        // Fill 是按鈕觸發的一次性解算,不在每幀路徑上,而且可能從非繪製路徑(_pendingActions)被呼叫。
+        // Refresh() 自己第一件事就是 IsLoggedIn 閘門,未登入時直接把所有 *Known 清成 false 就返回,
+        // 所以在這裡強制刷新是安全的 —— 資料讀不到會表現成下面三個 reason 之一,不是崩潰。
+        ledger.Refresh(true);
+        if (ledger.Rows.Length == 0) {
+            reason = "island material table could not be built";
+            return null;
+        }
+        if (!ledger.StockKnown) {
+            reason = "pouch counts could not be read";
+            return null;
+        }
+        if (!ledger.DemandKnown) {
+            reason = "workshop agenda has not been read";
+            return null;
+        }
+        var budget = new int[ledger.Rows.Length];
+        for (var i = 0; i < budget.Length; ++i)
+            budget[i] = Math.Max(0, ledger.NetStockOf((uint)i, MaterialLedger.HorizonTwoWeeks));
+        reason = null;
+        return budget;
+    }
+
+    // 每個產品吃哪些材料。
+    // 🔴 MJICraftworksObject.Material[] **直接就是 MJIItemPouch 列號**(與 MJIRecipe.Material[] 不同 ——
+    //    那個指向 MJIRecipeMaterial,多一層轉接,照抄會得到一份看起來合理但完全錯誤的配方表)。
+    // 🔴 判「有沒有這個材料」一律看 Amount > 0,不能看 Material != 0:pouch 第 0 列是真材料(棕櫚葉)。
+    private static (uint PouchId, int Amount)[][] BuildCraftMaterials(ExcelSheet<MJICraftworksObject> sheet, uint maxId) {
+        var table = new (uint PouchId, int Amount)[maxId + 1][];
+        foreach (var row in sheet) {
+            if (row.RowId > maxId)
+                continue;
+            var list = new List<(uint, int)>();
+            for (var i = 0; i < row.Material.Count && i < row.Amount.Count; ++i) {
+                var amount = row.Amount[i];
+                if (amount <= 0)
+                    continue;
+                list.Add((row.Material[i].RowId, amount));
+            }
+            table[row.RowId] = [.. list];
+        }
+        return table;
+    }
+
+    // 這個產品的材料裡,有多少比例(按數量加權)是目前的過剩額度吃得下的。
+    private static float SurplusFraction((uint PouchId, int Amount)[]? mats, int[] budget) {
+        if (mats == null || mats.Length == 0)
+            return 0f;
+        var total = 0;
+        var surplus = 0;
+        foreach (var (pouchId, amount) in mats) {
+            total += amount;
+            if (pouchId < budget.Length && budget[pouchId] >= amount)
+                surplus += amount;
+        }
+        return total > 0 ? (float)surplus / total : 0f;
+    }
+
+    private static void ConsumeSurplus((uint PouchId, int Amount)[]? mats, int[] budget) {
+        if (mats == null)
+            return;
+        foreach (var (pouchId, amount) in mats)
+            if (pouchId < budget.Length)
+                budget[pouchId] = Math.Max(0, budget[pouchId] - amount);
+    }
+
+    // 偏好 = 候選分數 × (1 + 強度 × 過剩比例);完全用過剩材料的產品在 50% 時拿到 1.5 倍。
+    // 🔑 刻意用乘法而不是加法:加法會讓一個低價值產品只因為「材料剛好過剩」就壓過高價值產品,
+    //    乘法則只在價值相近時才改變順序,代價可控且與強度成比例。
+    private static float[]? BuildSurplusMultipliers(Craft[] catalog, (uint PouchId, int Amount)[][]? craftMats, int[]? budget, float strength) {
+        if (craftMats == null || budget == null || strength <= 0)
+            return null;
+        var mult = new float[catalog.Length];
+        for (var i = 0; i < catalog.Length; ++i) {
+            var id = catalog[i].Id;
+            mult[i] = 1f + strength * SurplusFraction(id < craftMats.Length ? craftMats[id] : null, budget);
+        }
+        return mult;
     }
 
     private static float DayValue(WorkshopSolver.DayRec day, int maxWorkshops, ExcelSheet<MJICraftworksObject> sheet, WorkshopSolver.Popularity popularity, int[] counts, int[] baseBucket, int[] supplyRatios, int craftsPerStep) {

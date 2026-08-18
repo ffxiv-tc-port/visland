@@ -1,4 +1,5 @@
 using Dalamud.Interface.Utility;
+using System;
 using Dalamud.Interface.Utility.Raii;
 using visland.Helpers;
 using Dalamud.Bindings.ImGui;
@@ -88,6 +89,16 @@ unsafe class WorkshopWindow : UIAttachedWindow {
         if (ImGui.Checkbox("Fill the cycles the archive leaves empty".Loc(), ref _config.FillEmptyDays))
             _config.NotifyModified();
         ImGui.TextWrapped("The Overseas Casuals archive only covers 5 production days per season. The game itself allows crafting on all 7 (rest days are a rule of the native UI, not of the game). When enabled, the remaining cycles are solved locally from the game's own popularity and supply data, counting what the archive days already produce so the same items are not picked twice.".Loc());
+
+        using (ImRaii.Disabled(!_config.FillEmptyDays)) {
+            var surplus = _config.SurplusPreferencePercent;
+            ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
+            if (ImGui.SliderInt("Prefer surplus materials".Loc(), ref surplus, 0, 50, "%d%%")) {
+                _config.SurplusPreferencePercent = Math.Clamp(surplus, 0, 50);
+                _config.NotifyModified();
+            }
+        }
+        ImGui.TextWrapped("Biases the local solve towards products whose materials you already have spare - spare meaning pouch stock above what the workshop agenda needs over the next two weeks, the same measure the granary reassignment and the material ledger use. 0% ignores materials entirely, which is the previous behaviour. Higher values trade expected cowries for using up what is piling up; the report on the Schedule tab shows what the filled cycles are worth either way, so you can see the cost. What the archive days already consume is subtracted first, and each workshop sees what the previous one used up. If pouch counts or the agenda cannot be read the preference is skipped and the cycles are solved on value alone.".Loc());
 
         using (ImRaii.Disabled(!_config.FillEmptyDays || _config.FavourMode == FavourMode.None)) {
             if (ImGui.Checkbox("Put requests on the earliest cycles".Loc(), ref _config.FavoursEarliestCycles))

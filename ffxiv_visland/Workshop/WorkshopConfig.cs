@@ -22,6 +22,12 @@ public class WorkshopConfig : Configuration.Node {
     // 預設關 = 維持既有行為(C1 是純貝殼幣最佳化,請求只落在封存的那幾天)。
     public bool FavoursEarliestCycles = false;
 
+    // 補空生產日時對「過剩材料」的偏好強度,單位是 %(0~50)。
+    // 過剩 = 收納袋現有 − 工坊排程兩週需求,取正值(與屯貨倉庫派遣、缺料總表同一把尺)。
+    // 🔴 預設 0 = 完全不偏好 = 加這個功能之前的行為。
+    // ⚠️ 這是**使用者參數**,不是遊戲資料 —— 調高會用掉囤積的材料,但期望貝殼幣會下降。
+    public int SurplusPreferencePercent = 0;
+
     // 季號人工修正(以「週」為單位,在 100 季的循環裡位移)。
     // 0 = 完全沿用原本的日期算術。實機看 Schedule 分頁的對位診斷確認相位後才需要動它。
     public int SeasonOffset = 0;
