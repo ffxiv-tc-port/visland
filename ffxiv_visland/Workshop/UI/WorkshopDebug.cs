@@ -173,7 +173,9 @@ public unsafe class WorkshopDebug {
 
     private void DrawWorkshopSchedule(ref AgentMJICraftSchedule.WorkshopData w, string tag) {
         foreach (var n in _tree.Node($"{tag}: {w.NumScheduleEntries} entries, {w.NumEfficientCrafts} eff, {w.UsedTimeSlots:X} used", w.NumScheduleEntries == 0)) {
-            for (var j = 0; j < w.NumScheduleEntries; ++j) {
+            // NumScheduleEntries 是遊戲寫入的 byte，EntryData 是 FixedSizeArray6：夾到容量內。
+            var numEntries = Math.Min((int)w.NumScheduleEntries, w.EntryData.Length);
+            for (var j = 0; j < numEntries; ++j) {
                 ref var e = ref w.EntryData[j];
                 _tree.LeafNode($"Item {j}: {e.CraftObjectId} ({MJICraftworksObject.GetRow(e.CraftObjectId)?.Item.Value.Name}), flags={e.Flags} startslot={e.StartingSlot}, dur={e.Duration}, started={e.Started}, efficient={e.Efficient}");
             }

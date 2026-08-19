@@ -3,6 +3,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.MJI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Dalamud.Bindings.ImGui;
 using Lumina.Excel.Sheets;
+using System;
 using System.Text;
 using visland.Helpers;
 using visland.Island;
@@ -82,7 +83,9 @@ public unsafe class FarmWindow : UIAttachedWindow {
             var agent = AgentMJIFarmManagement.Instance();
             if (agent == null)
                 return;
-            for (var i = 0; i < agent->NumSlots; ++i) {
+            // NumSlots 是遊戲寫入的 int，Slots 是 FixedSizeArray20 —— 兩者無結構保證，夾到容量內。
+            var numSlots = Math.Min(agent->NumSlots, agent->Slots.Length);
+            for (var i = 0; i < numSlots; ++i) {
                 var cared = agent->Slots[i].UnderCare;
                 canDismiss |= cared;
                 canEntrust |= !cared && agent->Slots[i].SeedItemId != 0;
@@ -117,7 +120,9 @@ public unsafe class FarmWindow : UIAttachedWindow {
             var agent = AgentMJIFarmManagement.Instance();
             if (agent == null)
                 return;
-            for (var i = 0; i < agent->NumSlots; ++i) {
+            // 同上：NumSlots 夾到 Slots 的固定容量內。
+            var numSlots = Math.Min(agent->NumSlots, agent->Slots.Length);
+            for (var i = 0; i < numSlots; ++i) {
                 ref var slot = ref agent->Slots[i];
                 var inventory = Utils.NumItems(slot.YieldItemId);
                 var overcap = inventory + slot.YieldAvailable > 999;

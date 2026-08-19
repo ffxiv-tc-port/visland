@@ -1,6 +1,7 @@
 ﻿using FFXIVClientStructs.FFXIV.Client.Game.MJI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Lumina.Excel.Sheets;
+using System;
 using visland.Helpers;
 
 namespace visland.Farm;
@@ -40,7 +41,9 @@ public unsafe class FarmDebug {
             _tree.LeafNode($"Cur ctx menu: row={agent->CurContextMenuRow}, op={agent->CurContextOpType}");
             _tree.LeafNode($"Total yield: avail={agent->TotalAvailableYield}, expected={agent->ExpectedTotalAvailableYield}");
             foreach (var n2 in _tree.Node($"Slots: {agent->NumSlots}", agent->NumSlots == 0)) {
-                for (var i = 0; i < agent->NumSlots; ++i) {
+                // NumSlots 是遊戲寫入的 int，Slots 是 FixedSizeArray20：夾到容量內。
+                var numSlots = Math.Min(agent->NumSlots, agent->Slots.Length);
+                for (var i = 0; i < numSlots; ++i) {
                     ref var slot = ref agent->Slots[i];
                     foreach (var n3 in _tree.Node($"{i}: {slot.YieldName}")) {
                         _tree.LeafNode($"Seed: {slot.SeedItemId} '{slot.SeedName}' have={slot.SeedInventoryCount}");
