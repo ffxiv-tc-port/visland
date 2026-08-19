@@ -41,7 +41,7 @@ unsafe class WorkshopWindow : UIAttachedWindow {
             using (var tab = ImRaii.TabItem("Settings".Loc()))
                 if (tab)
                     DrawSettings();
-            using (var tab = ImRaii.TabItem("Debug"))
+            using (var tab = ImRaii.TabItem("Debug".Loc()))
                 if (tab)
                     _debug.Draw();
         }

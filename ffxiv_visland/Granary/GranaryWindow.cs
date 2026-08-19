@@ -36,7 +36,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
             using (var tab = ImRaii.TabItem("Main".Loc()))
                 if (tab)
                     DrawMain();
-            using (var tab = ImRaii.TabItem("Debug"))
+            using (var tab = ImRaii.TabItem("Debug".Loc()))
                 if (tab)
                     _debug.Draw();
         }

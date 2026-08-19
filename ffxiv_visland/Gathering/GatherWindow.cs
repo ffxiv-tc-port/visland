@@ -80,7 +80,7 @@ public class GatherWindow : Window {
             using (var tab = ImRaii.TabItem("Log".Loc()))
                 if (tab)
                     ImGui.TextUnformatted("Plugin log is available via /xllog or Dalamud log window.".Loc());
-            using (var tab = ImRaii.TabItem("Debug"))
+            using (var tab = ImRaii.TabItem("Debug".Loc()))
                 if (tab)
                     _debug.Draw();
         }
