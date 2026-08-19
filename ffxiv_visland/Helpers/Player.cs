@@ -45,11 +45,25 @@ public static unsafe class Player {
 
     public static float DistanceTo(Vector3 pos) => Object == null ? float.MaxValue : Vector3.Distance(Object.Position, pos);
 
+    // 🔴 這個 lambda 是交給 _action(Throttle)之後才跑的 —— 由節流器決定落在哪一幀,
+    //    所以「呼叫 EatFood 的當下 agent 還在」保證不了 lambda 真正執行時它還在。
+    //    AgentInventoryContext.Instance() 是產生器產出的取得子,本體即
+    //    「agentModule == null ? null : GetAgentByInternalId(...)」,AgentModule 未建立或
+    //    該 agent 格未建立時合法回 null;裸解參考就是 AccessViolationException,
+    //    corrupted-state exception,try/catch 與任何 SafeWrapper 都攔不到。
+    // fail-closed:取不到就這次不吃。漏吃一次只是少一層加成,下次節流窗口會再試。
+    private static void UseItemSafe(uint itemId) {
+        var agent = AgentInventoryContext.Instance();
+        if (agent == null)
+            return;
+        agent->UseItem(itemId);
+    }
+
     public static void EatFood(int id) {
         if (InventoryManager.Instance()->GetInventoryItemCount((uint)id) > 0)
-            _action.Exec(() => AgentInventoryContext.Instance()->UseItem((uint)id));
+            _action.Exec(() => UseItemSafe((uint)id));
         else if (InventoryManager.Instance()->GetInventoryItemCount((uint)id, true) > 0)
-            _action.Exec(() => AgentInventoryContext.Instance()->UseItem((uint)id + 1_000_000));
+            _action.Exec(() => UseItemSafe((uint)id + 1_000_000));
     }
 
     public static void Mount() => ExecuteActionSafe(ActionType.GeneralAction, 24);

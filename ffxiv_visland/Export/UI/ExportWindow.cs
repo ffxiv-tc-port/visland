@@ -73,6 +73,7 @@ unsafe class ExportWindow : UIAttachedWindow {
     // 🔴 資料讀不到就退回原本的行為,不要改成「不敢賣」——
     //    在未知狀態下擋賣是把行為往錯的方向改。只記一次 Information 讓使用者回報得出來。
     private bool _loggedLedgerUnavailable;
+    private bool _loggedAgentUnavailable;
 
     private void AutoExport() {
         try {
@@ -85,7 +86,23 @@ unsafe class ExportWindow : UIAttachedWindow {
                     }
                 }
             }
-            var data = AgentMJIDisposeShop.Instance()->Data;
+            // 🔴 AgentMJIDisposeShop.Instance() 是產生器產出的取得子,本體就是
+            //    「agentModule == null ? null : GetAgentByInternalId(...)」—— AgentModule 還沒建好、
+            //    或這個 agent 格還沒建立時合法回 null;Data 只是普通指標欄位,商店資料未載入時也是 null。
+            //    外面這圈 try/catch 對此完全無效:解參考 null 是 AccessViolationException,
+            //    在 .NET Core 屬 corrupted-state exception,catch (Exception) 攔不到。
+            //    而且這條路徑不是「只在視窗開著時」跑 —— OnOpen 是 _exportThrottle.Exec(AutoExport, 2),
+            //    會延到之後某一幀才執行,PreOpenCheck 當時驗過的狀態到那時已不保證成立。
+            // fail-closed:拿不到就這次不賣。少賣一次下次還能賣,崩潰不能重來。
+            var agent = AgentMJIDisposeShop.Instance();
+            var data = agent == null ? null : agent->Data;
+            if (data == null) {
+                if (!_loggedAgentUnavailable) {
+                    _loggedAgentUnavailable = true;
+                    Service.Log.Information($"[Export] dispose shop agent/data unavailable (agent={(nint)agent:X}), skipping this export run");
+                }
+                return;
+            }
             int seafarerCowries = data->CurrencyCounts[0], islanderCowries = data->CurrencyCounts[1];
             AutoExportCategory(0, _config.NormalLimit, ref seafarerCowries, ref islanderCowries);
             AutoExportCategory(1, _config.GranaryLimit, ref seafarerCowries, ref islanderCowries);
@@ -101,8 +118,12 @@ unsafe class ExportWindow : UIAttachedWindow {
     private void AutoExportCategory(int category, int limit, ref int seafarerCowries, ref int islanderCowries) {
         if (limit >= 999)
             return;
+        // 同上兩層都可能合法為 null。目前唯一呼叫端 AutoExport 已判過,但 agent 是每次重新取得的、
+        // 不跨呼叫沿用 —— 各自判空,將來多一個呼叫端時才不會靜默退化成裸讀。
         var agent = AgentMJIDisposeShop.Instance();
-        var data = agent->Data;
+        var data = agent == null ? null : agent->Data;
+        if (data == null)
+            return;
         List<AtkValue> args =
         [
             new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt },

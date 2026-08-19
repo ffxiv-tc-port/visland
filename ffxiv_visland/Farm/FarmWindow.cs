@@ -76,7 +76,12 @@ public unsafe class FarmWindow : UIAttachedWindow {
         }
         else {
             bool canDismiss = false, canEntrust = false;
+            // DrawMain() 已在同一幀判過 agent != null 才呼叫進來,但這裡是重新取得的一次呼叫 ——
+            // AgentMJIFarmManagement.Instance() 合法回 null,裸解參考是 AccessViolationException
+            // (corrupted-state,try/catch 攔不到)。fail-closed:取不到就兩個批次操作都不給按。
             var agent = AgentMJIFarmManagement.Instance();
+            if (agent == null)
+                return;
             for (var i = 0; i < agent->NumSlots; ++i) {
                 var cared = agent->Slots[i].UnderCare;
                 canDismiss |= cared;
@@ -107,7 +112,11 @@ public unsafe class FarmWindow : UIAttachedWindow {
             ImGui.TableSetupColumn("Operations".Loc());
             ImGui.TableHeadersRow();
 
+            // 同上:呼叫端同幀判過,但這是重新取得的一次呼叫,各自判空。
+            // fail-closed:取不到就畫一張空表(表頭已經畫出來了),不要裸讀 NumSlots。
             var agent = AgentMJIFarmManagement.Instance();
+            if (agent == null)
+                return;
             for (var i = 0; i < agent->NumSlots; ++i) {
                 ref var slot = ref agent->Slots[i];
                 var inventory = Utils.NumItems(slot.YieldItemId);

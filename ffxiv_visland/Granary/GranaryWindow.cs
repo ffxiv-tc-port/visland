@@ -45,9 +45,15 @@ unsafe class GranaryWindow : UIAttachedWindow {
     public override void OnOpen() {
         if (_config.Reassign != GranaryConfig.UpdateStrategy.Manual) {
             uint reassignMask = 0;
+            // GetGranaryState() 會回 null,原本是裸解參考。刻意維持原本的求值順序:
+            // TryAutoCollect(i) 先跑(它有副作用,而且收成後 RemainingDays 才是最新的),
+            // 之後才取狀態。fail-closed:讀不到就不把這座倉庫放進重新指派名單。
             for (var i = 0; i < 2; ++i)
-                if (TryAutoCollect(i) && GranaryUtils.GetGranaryState(i)->RemainingDays < 7)
-                    reassignMask |= 1u << i;
+                if (TryAutoCollect(i)) {
+                    var gstate = GranaryUtils.GetGranaryState(i);
+                    if (gstate != null && gstate->RemainingDays < 7)
+                        reassignMask |= 1u << i;
+                }
 
             if (reassignMask != 0)
                 ReassignImpl(reassignMask);
@@ -135,8 +141,14 @@ unsafe class GranaryWindow : UIAttachedWindow {
 
                 for (var i = 0; i < 2; ++i) {
                     ImGui.TableNextColumn();
-                    var curDest = GranaryUtils.GetGranaryState(i)->ActiveExpeditionId;
-                    var curDays = GranaryUtils.GetGranaryState(i)->RemainingDays;
+                    // GetGranaryState() 會回 null(agent / GranariesState 還沒好),原本是裸解參考。
+                    // fail-closed:這一格畫不出來就整格跳過,不要拿 0 當「第 0 號遠征地、剩 0 天」——
+                    // 那會讓按鈕的啟用狀態與標籤都變成假的。
+                    var gstate = GranaryUtils.GetGranaryState(i);
+                    if (gstate == null)
+                        continue;
+                    var curDest = gstate->ActiveExpeditionId;
+                    var curDays = gstate->RemainingDays;
                     var maxDays = (byte)Math.Min(7, curDays + GranaryUtils.MaxDays());
                     using (ImRaii.Disabled(collectStates[i] != CollectResult.NothingToCollect || curDest == e->ExpeditionId && curDays == maxDays))
                         if (ImGui.Button((curDest == e->ExpeditionId ? "Max" : "Reassign").Loc() + $"##{i}_{e->ExpeditionId}"))
@@ -219,6 +231,12 @@ unsafe class GranaryWindow : UIAttachedWindow {
     // 把遠征地整批攤成 managed 物件再挑 —— 不跨呼叫保存任何原生指標。
     private List<ExpeditionCandidate> BuildCandidates(AgentMJIGatheringHouse* agent) {
         List<ExpeditionCandidate> candidates = [];
+        // 🔴 兩個呼叫端傳進來的都是 AgentMJIGatheringHouse.Instance() 的原樣回傳值,而它合法回 null
+        //    (產生器本體即 agentModule == null ? null : ...);Data 也只是普通指標欄位,可能還沒載入。
+        //    在被呼叫端判空,兩個呼叫端就一起被涵蓋,將來多一個也不會漏。
+        // fail-closed:回空清單。呼叫端對「candidates.Count > 0」都有分支,空清單＝不改變遠征地。
+        if (agent == null || agent->Data == null)
+            return candidates;
         for (var e = agent->Data->Expeditions.First; e != agent->Data->Expeditions.Last; ++e) {
             if (!agent->IsExpeditionUnlocked(e))
                 continue;
@@ -312,9 +330,20 @@ unsafe class GranaryWindow : UIAttachedWindow {
     }
 
     private void ReassignImpl(uint allowedMask) {
-        byte[] currentDestinations = [GranaryUtils.GetGranaryState(0)->ActiveExpeditionId, GranaryUtils.GetGranaryState(1)->ActiveExpeditionId];
-        byte[] newDestinations = [currentDestinations[0], currentDestinations[1]];
+        // 🔴 GranaryUtils.GetGranaryState() 自己就會回 null(agent 或 GranariesState 還沒好),
+        //    原本這一行是對它的回傳值直接裸解參考;AgentMJIGatheringHouse.Instance() 同樣合法回 null,
+        //    而 agent->Data 是第二層裸讀。任一層是 null 就是 AccessViolationException ——
+        //    corrupted-state exception,try/catch 攔不到,遊戲直接被帶走。
+        // fail-closed:讀不到就這次不重新指派,遠征維持現狀;下次開窗或按 Apply 會再試一次。
+        var state0 = GranaryUtils.GetGranaryState(0);
+        var state1 = GranaryUtils.GetGranaryState(1);
         var agent = AgentMJIGatheringHouse.Instance();
+        if (state0 == null || state1 == null || agent == null || agent->Data == null) {
+            Service.Log.Information($"[Granary] reassign skipped: granary state or agent unavailable (s0={(nint)state0:X}, s1={(nint)state1:X}, agent={(nint)agent:X})");
+            return;
+        }
+        byte[] currentDestinations = [state0->ActiveExpeditionId, state1->ActiveExpeditionId];
+        byte[] newDestinations = [currentDestinations[0], currentDestinations[1]];
         if (_config.Reassign is GranaryConfig.UpdateStrategy.BestDifferent or GranaryConfig.UpdateStrategy.BestSame) {
             List<(byte id, int count)> destinations = [];
             for (var e = agent->Data->Expeditions.First; e != agent->Data->Expeditions.Last; ++e)
@@ -367,7 +396,11 @@ unsafe class GranaryWindow : UIAttachedWindow {
         for (var i = 0; i < 2; ++i) {
             if ((allowedMask & (1u << i)) == 0)
                 continue; // this granary can't be reassigned
-            var curDays = GranaryUtils.GetGranaryState(i)->RemainingDays;
+            // GetGranaryState() 會回 null;上面已經判過一次,但這是重新取得的一次呼叫,各自判空。
+            var gstate = GranaryUtils.GetGranaryState(i);
+            if (gstate == null)
+                continue;
+            var curDays = gstate->RemainingDays;
             var newDays = (byte)Math.Min(7, curDays + max);
             if (currentDestinations[i] == newDestinations[i] && curDays == newDays)
                 continue; // this is the best already

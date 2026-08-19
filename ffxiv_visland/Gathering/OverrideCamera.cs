@@ -78,7 +78,19 @@ public unsafe class OverrideCamera : IDisposable {
             if (self == null)
                 return;
             if (IgnoreUserInput || inputMode == 0) {
-                var dt = Framework.Instance()->FrameDeltaTime;
+                // 🔴 上面那圈 try/catch 擋的是「特徵碼失配 -> ThrowNullAddress 丟 InvalidOperationException」,
+                //    但那不是這裡唯一的失敗形式。Framework.Instance() 是
+                //    [StaticAddress("48 8B 1D ?? ?? ?? ?? 8B 7C 24 64", 3, isPointer: true)],
+                //    產生器對 isPointer:true 產出的是「if (ppInstance is null) Throw...; return *ppInstance;」
+                //    —— 判空判的是**外層那個指標槽的位址**,回傳的卻是**槽裡的內容**,而那個內容
+                //    在遊戲還沒建好 / 正在拆掉 Framework 時合法為 null,且完全沒被判過。
+                //    裸解參考它 = AccessViolationException,在 .NET Core 是 corrupted-state exception,
+                //    catch (Exception) 攔不到 —— 這個 detour 是原生程式碼直接呼叫的,沒有第二道防線。
+                // fail-closed:拿不到就當這一幀 dt = 0。下面 maxH/maxV = 速度 * 0 = 0,
+                //    Math.Clamp(delta, -0, 0) = 0,等於這一幀不轉鏡頭 —— Original() 已經先跑過了,
+                //    遊戲自己的鏡頭處理原封不動。每幀都會跑,刻意不寫 log。
+                var framework = Framework.Instance();
+                var dt = framework == null ? 0f : framework->FrameDeltaTime;
                 var deltaH = (DesiredAzimuth - self->DirH.Radians()).Normalized();
                 var deltaV = (DesiredAltitude - self->DirV.Radians()).Normalized();
                 var maxH = SpeedH.Rad * dt;

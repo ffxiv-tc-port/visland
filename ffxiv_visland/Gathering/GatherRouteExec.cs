@@ -440,8 +440,16 @@ public class GatherRouteExec : IDisposable {
             wp.AddWaypointsAfter(CurrentRoute!, waypoints);
     }
 
-    private unsafe List<(MiniMapGatheringMarker Marker, Vector3 Position, float DistanceToLast, IGameObject? Node)> GetGatheringMarkers()
-        => [.. AgentMap.Instance()->MiniMapGatheringMarkers.ToArray()
+    // 🔴 AgentMap.Instance() 是產生器產出的取得子,本體即「agentModule == null ? null : ...」,
+    //    換區/登入途中 AgentModule 還沒建好時合法回 null。裸解參考 = AccessViolationException,
+    //    corrupted-state exception,try/catch 攔不到,沒有第二道防線。
+    // fail-closed:拿不到地圖 agent 就回空清單。兩個呼叫端對空清單的既有反應都是
+    //    「Player.RevealNode(); return;」—— 那是本來就會走到的路徑,退化行為良性。
+    private unsafe List<(MiniMapGatheringMarker Marker, Vector3 Position, float DistanceToLast, IGameObject? Node)> GetGatheringMarkers() {
+        var agent = AgentMap.Instance();
+        if (agent == null)
+            return [];
+        return [.. agent->MiniMapGatheringMarkers.ToArray()
             .Where(x => x.MapMarker.IconId != 0)
             .Select((marker, index) => {
                 var pos = new Vector3(marker.MapMarker.X / 16, Player.Position.Y, marker.MapMarker.Y / 16);
@@ -450,6 +458,7 @@ public class GatherRouteExec : IDisposable {
                 Service.Log.Debug($"Found {nameof(MiniMapGatheringMarker)} @ {pos} {(obj != null ? $"and matching object [{obj.BaseId}] {obj.Name.TextValue} @ {obj.Position}" : string.Empty)}");
                 return (Marker: marker, Position: obj != null ? obj.Position : pos, DistanceToLast: dist, Node: obj);
             })];
+    }
     #endregion
 
     #region Error Checking
