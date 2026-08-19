@@ -192,8 +192,27 @@ public static unsafe class Utils {
         return clicked;
     }
 
-    public static int EorzeanHour() => DateTimeOffset.FromUnixTimeSeconds(Framework.Instance()->ClientTime.EorzeaTime).Hour;
-    public static int EorzeanMinute() => DateTimeOffset.FromUnixTimeSeconds(Framework.Instance()->ClientTime.EorzeaTime).Minute;
+    // Framework.Instance() 宣告成 [StaticAddress("48 8B 1D ...", 3, isPointer: true)]：產生器讀的是
+    // 「指標的位址」再多解參考一層，所以它真的會回 null(登入前、登出後、關閉中都是常態)；
+    // 不帶 isPointer 的那種才是「null 就擲、否則保證非 null」，光看 attribute 名稱分不出來。
+    // ClientTime 是內嵌在 Framework 的欄位(FieldOffset 0x1770)，裸讀 EorzeaTime 等於對 null
+    // 加偏移解參考 ＝ AccessViolationException，在 .NET Core 屬 corrupted-state exception，
+    // try/catch 攔不到 ⇒ 只能事前判空。
+    //
+    // 取不到就回 0。唯一呼叫端是 GatherRouteExec.Update()：
+    //     if (wp.WaitTimeET != default && wp.WaitTimeET != (EorzeanHour(), EorzeanMinute()).ToVec2()) return;
+    // WaitTimeET 是 Vector2，等於 default(0,0) 時整個條件短路 —— 也就是說「等 ET 00:00」這種航點
+    // 本來就表達不出來、永遠走不到下面那個比對。所以回 (0,0) 永遠比對不中，效果是「這一輪繼續等」
+    // 而不是「誤判時間到而提前前進」，失敗方向是安全的。
+    public static int EorzeanHour() {
+        var framework = Framework.Instance();
+        return framework == null ? 0 : DateTimeOffset.FromUnixTimeSeconds(framework->ClientTime.EorzeaTime).Hour;
+    }
+
+    public static int EorzeanMinute() {
+        var framework = Framework.Instance();
+        return framework == null ? 0 : DateTimeOffset.FromUnixTimeSeconds(framework->ClientTime.EorzeaTime).Minute;
+    }
 }
 
 public static class Extensions {
