@@ -69,6 +69,19 @@ public static unsafe class Player {
     public static bool SwitchJob(uint classJobId) {
         if (Job == classJobId) return true;
         var gearsets = RaptureGearsetModule.Instance();
+        // 🔴 RaptureGearsetModule.Instance() 不是 [StaticAddress] 產生器產出的，是手寫包裝：
+        //    「var uiModule = UIModule.Instance(); return uiModule == null ? null : uiModule->GetRaptureGearsetModule();」
+        //    （Dalamud lib/FFXIVClientStructs/.../Client/UI/Misc/RaptureGearsetModule.cs:15-18）
+        //    ⇒ 回 null 是合法結果，登入前／登出中拿得到的就是 null。
+        //    原本 gearsets->Entries 是對 null+0x50 取 span 再走訪＝AccessViolationException，
+        //    而 AVE 在 .NET Core 是 corrupted-state exception，try/catch 攔不到。
+        // fail-closed：拿不到裝備組模組就回 false＝「這次不換職業」。呼叫端（自動採集／自動化排程）
+        //    看到 false 會停在原地重試，而不是誤以為已經換好職業繼續往下跑。
+        //    這裡不是每幀熱路徑（只在真的要切職業時走到），所以留一行 Information 讓使用者回報得到。
+        if (gearsets == null) {
+            Service.Log.Information($"SwitchJob({classJobId}): RaptureGearsetModule 尚未就緒，這次不換職業");
+            return false;
+        }
         foreach (ref var gs in gearsets->Entries) {
             if (!gearsets->IsValidGearset(gs.Id)) continue;
             if (gs.ClassJob == classJobId) {
