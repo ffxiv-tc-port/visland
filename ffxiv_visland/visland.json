@@ -1,0 +1,12 @@
+{
+    "Author": "veyn, croizat",
+    "Name": "Visland",
+    "InternalName": "visland",
+    "Description": "自動化採集、開拓工坊排班等無人島相關作業。",
+    "ApplicableVersion": "any",
+    "Punchline": "自動化無人島各項活動",
+    "RepoUrl": "https://github.com/ffxiv-tc-port/visland",
+    "AcceptsFeedback": false,
+    "IconUrl": "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/icons/visland.png",
+    "DalamudApiLevel": 12
+}

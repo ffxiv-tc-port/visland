@@ -4,7 +4,7 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
-using Dalamud.Bindings.ImGui;
+using ImGuiNET;
 using Lumina.Excel.Sheets;
 using Newtonsoft.Json;
 using System;
@@ -35,9 +35,9 @@ public class GatherWindow : Window {
     private string searchString = string.Empty;
     private readonly List<Route> FilteredRoutes = [];
     private FontAwesomeIcon PlayIcon => Exec.CurrentRoute != null && !Exec.Paused ? FontAwesomeIcon.Pause : FontAwesomeIcon.Play;
-    private string PlayTooltip => Exec.CurrentRoute == null ? "Start Route" : Exec.Paused ? "Resume Route" : "Pause Route";
+    private string PlayTooltip => Exec.CurrentRoute == null ? "Start Route".Loc() : Exec.Paused ? "Resume Route".Loc() : "Pause Route".Loc();
 
-    public GatherWindow() : base("Gathering Automation", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse) {
+    public GatherWindow() : base("Gathering Automation".Loc(), ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse) {
         Size = new Vector2(800, 800);
         SizeCondition = ImGuiCond.FirstUseEver;
         RouteDB = Service.Config.Get<GatherRouteDB>();
@@ -48,7 +48,7 @@ public class GatherWindow : Window {
     public override void Draw() {
         using var tabs = ImRaii.TabBar("Tabs");
         if (tabs) {
-            using (var tab = ImRaii.TabItem("Routes"))
+            using (var tab = ImRaii.TabItem("Routes".Loc()))
                 if (tab) {
                     DrawExecution();
                     ImGui.Separator();
@@ -66,9 +66,9 @@ public class GatherWindow : Window {
                         a();
                     _postDraw.Clear();
                 }
-            using (var tab = ImRaii.TabItem("Log"))
+            using (var tab = ImRaii.TabItem("Log".Loc()))
                 if (tab)
-                    ImGui.TextUnformatted("Plugin log is available via /xllog or Dalamud log window.");
+                    ImGui.TextUnformatted("Plugin log is available via /xllog or Dalamud log window.".Loc());
             using (var tab = ImRaii.TabItem("Debug"))
                 if (tab)
                     _debug.Draw();
@@ -76,47 +76,47 @@ public class GatherWindow : Window {
     }
 
     private void DrawExecution() {
-        ImGui.Text("Status: ");
+        ImGui.Text("Status:".Loc() + " ");
         ImGui.SameLine();
 
         if (Exec.CurrentRoute != null)
-            Utils.FlashText($"{(Exec.Paused ? "PAUSED" : Exec.Waiting ? "WAITING" : "RUNNING")}", new Vector4(1.0f, 1.0f, 1.0f, 1.0f), Exec.Paused ? new Vector4(1.0f, 0.0f, 0.0f, 1.0f) : new Vector4(0.0f, 1.0f, 0.0f, 1.0f), 2);
+            Utils.FlashText((Exec.Paused ? "PAUSED" : Exec.Waiting ? "WAITING" : "RUNNING").Loc(), new Vector4(1.0f, 1.0f, 1.0f, 1.0f), Exec.Paused ? new Vector4(1.0f, 0.0f, 0.0f, 1.0f) : new Vector4(0.0f, 1.0f, 0.0f, 1.0f), 2);
         ImGui.SameLine();
 
         if (Exec.CurrentRoute == null || Exec.CurrentWaypoint >= Exec.CurrentRoute.Waypoints.Count) {
-            ImGui.Text("Route not running");
+            ImGui.Text("Route not running".Loc());
             return;
         }
 
         if (Exec.CurrentRoute != null) // Finish() call could've reset it
         {
             ImGui.SameLine();
-            ImGui.Text($"{Exec.CurrentRoute.Name}: Step #{Exec.CurrentWaypoint + 1} {Exec.CurrentRoute.Waypoints[Exec.CurrentWaypoint].Position}");
+            ImGui.Text($"{Exec.CurrentRoute.Name}: " + "Step #??".Loc(Exec.CurrentWaypoint + 1) + $" {Exec.CurrentRoute.Waypoints[Exec.CurrentWaypoint].Position}");
 
             if (Exec.Waiting) {
                 ImGui.SameLine();
-                ImGui.Text($"waiting {Exec.WaitUntil - Environment.TickCount64}ms");
+                ImGui.Text("waiting ??ms".Loc(Exec.WaitUntil - Environment.TickCount64));
             }
         }
 
         ImGui.SameLine();
-        ImGui.Text($"State: {Exec.CurrentState}");
+        ImGui.Text("State: ??".Loc(Exec.CurrentState));
     }
 
     private unsafe void DrawSidebar(Vector2 size) {
         using (ImRaii.Child("Sidebar", size, false)) {
             if (ImGuiComponents.IconButton(FontAwesomeIcon.Plus)) {
-                RouteDB.Routes.Add(new() { Name = "Unnamed Route" });
+                RouteDB.Routes.Add(new() { Name = "Unnamed Route".Loc() });
                 RouteDB.NotifyModified();
             }
 
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Create a New Route");
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Create a New Route".Loc());
             ImGui.SameLine();
 
             if (ImGuiComponents.IconButton(FontAwesomeIcon.FileImport))
                 TryImport(RouteDB);
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Import Route from Clipboard");
+                ImGui.SetTooltip("Import Route from Clipboard".Loc());
 
             ImGui.SameLine();
             if (ImGuiComponents.IconButton(FontAwesomeIcon.Cog))
@@ -126,7 +126,7 @@ public class GatherWindow : Window {
             ImGui.SameLine();
             RapidImport();
 
-            ImGui.TextV("Search: ");
+            ImGui.TextV("Search:".Loc() + " ");
             ImGui.SameLine();
             ImGui.SetNextItemWidth(-1);
             if (ImGui.InputText("###RouteSearch", ref searchString, 500)) {
@@ -144,13 +144,13 @@ public class GatherWindow : Window {
             using (ImRaii.Child("routes")) {
                 var groups = GetGroups(RouteDB, true);
                 foreach (var group in groups) {
-                    foreach (var _ in _tree.Node($"{group}###{groups.IndexOf(group)}", contextMenu: () => ContextMenuGroup(group))) {
+                    foreach (var _ in _tree.Node($"{(group == "None" ? "None".Loc() : group)}###{groups.IndexOf(group)}", contextMenu: () => ContextMenuGroup(group))) {
                         var routeSource = FilteredRoutes.Count > 0 ? FilteredRoutes : RouteDB.Routes;
                         for (var i = 0; i < routeSource.Count; i++) {
                             var route = routeSource[i];
                             var routeGroup = string.IsNullOrEmpty(route.Group) ? "None" : route.Group;
                             if (routeGroup == group) {
-                                if (ImGui.Selectable($"{route.Name} ({route.Waypoints.Count} steps)###{i}", i == selectedRouteIndex))
+                                if (ImGui.Selectable($"{route.Name} ({"?? steps".Loc(route.Waypoints.Count)})###{i}", i == selectedRouteIndex))
                                     selectedRouteIndex = i;
                                 //if (ImRaii.ContextPopup($"{route.Name}{i}"))
                                 //{
@@ -167,10 +167,10 @@ public class GatherWindow : Window {
 
     internal static bool RapidImportEnabled = false;
     private void RapidImport() {
-        if (ImGui.Checkbox("Enable Rapid Import", ref RapidImportEnabled))
+        if (ImGui.Checkbox("Enable Rapid Import".Loc(), ref RapidImportEnabled))
             ImGui.SetClipboardText("");
 
-        ImGuiComponents.HelpMarker("Import multiple presets with ease by simply copying them. Visland will read your clipboard and attempt to import whatever you copy. Your clipboard will be cleared upon enabling.");
+        ImGuiComponents.HelpMarker("Import multiple presets with ease by simply copying them. Visland will read your clipboard and attempt to import whatever you copy. Your clipboard will be cleared upon enabling.".Loc());
         if (RapidImportEnabled) {
             try {
                 var text = ImGui.GetClipboardText();
@@ -188,47 +188,50 @@ public class GatherWindow : Window {
     private void DrawRouteSettingsPopup() {
         using var popup = ImRaii.Popup("Advanced Options");
         if (popup.Success) {
-            Utils.DrawSection("Global Route Editing Options", ImGuiColors.ParsedGold);
-            if (ImGui.SliderFloat("Default Waypoint Radius", ref RouteDB.DefaultWaypointRadius, 0, 100))
+            Utils.DrawSection("Global Route Editing Options".Loc(), ImGuiColors.ParsedGold);
+            ImGui.SliderFloat("Default Waypoint Radius".Loc(), ref RouteDB.DefaultWaypointRadius, 0, 100);
+            if (ImGui.IsItemDeactivatedAfterEdit())
                 RouteDB.NotifyModified();
-            if (ImGui.SliderFloat("Default Interaction Radius", ref RouteDB.DefaultInteractionRadius, 0, 100))
+            ImGui.SliderFloat("Default Interaction Radius".Loc(), ref RouteDB.DefaultInteractionRadius, 0, 100);
+            if (ImGui.IsItemDeactivatedAfterEdit())
                 RouteDB.NotifyModified();
 
-            Utils.DrawSection("Global Route Operation Options", ImGuiColors.ParsedGold);
+            Utils.DrawSection("Global Route Operation Options".Loc(), ImGuiColors.ParsedGold);
 
-            if (ImGui.Checkbox("Auto Enable Island Sanctuary Gather Mode", ref RouteDB.GatherModeOnStart))
+            if (ImGui.Checkbox("Auto Enable Island Sanctuary Gather Mode".Loc(), ref RouteDB.GatherModeOnStart))
                 RouteDB.NotifyModified();
-            ImGuiComponents.HelpMarker("Enables \"Gather Mode\" when on your Island Sanctuary automatically when commencing a route.");
+            ImGuiComponents.HelpMarker("Enables \"Gather Mode\" when on your Island Sanctuary automatically when commencing a route.".Loc());
 
             using (ImRaii.Disabled()) {
-                if (ImGui.Checkbox("Stop Route on Error", ref RouteDB.DisableOnErrors))
+                if (ImGui.Checkbox("Stop Route on Error".Loc(), ref RouteDB.DisableOnErrors))
                     RouteDB.NotifyModified();
             }
-            ImGuiComponents.HelpMarker("Stops executing a route when you encounter a node you can't gather from due to full inventory.");
+            ImGuiComponents.HelpMarker("Stops executing a route when you encounter a node you can't gather from due to full inventory.".Loc());
 
-            if (ImGui.Checkbox("Teleport between zones", ref RouteDB.TeleportBetweenZones))
+            if (ImGui.Checkbox("Teleport between zones".Loc(), ref RouteDB.TeleportBetweenZones))
                 RouteDB.NotifyModified();
 
             Utils.WorkInProgressIcon();
             ImGui.SameLine();
-            if (ImGui.Checkbox("Auto Gather", ref RouteDB.AutoGather))
+            if (ImGui.Checkbox("Auto Gather".Loc(), ref RouteDB.AutoGather))
                 RouteDB.NotifyModified();
-            ImGuiComponents.HelpMarker($"Applies to non-island routes only. Will auto gather the item in the \"Item Target\" field and use the best actions available.");
+            ImGuiComponents.HelpMarker("Applies to non-island routes only. Will auto gather the item in the \"Item Target\" field and use the best actions available.".Loc());
 
-            Utils.DrawSection("Global Route Extras", ImGuiColors.ParsedGold);
+            Utils.DrawSection("Global Route Extras".Loc(), ImGuiColors.ParsedGold);
 
-            if (ImGui.Checkbox("Extract materia during routes", ref RouteDB.ExtractMateria))
+            if (ImGui.Checkbox("Extract materia during routes".Loc(), ref RouteDB.ExtractMateria))
                 RouteDB.NotifyModified();
-            if (ImGui.Checkbox("Repair gear during routes", ref RouteDB.RepairGear))
+            if (ImGui.Checkbox("Repair gear during routes".Loc(), ref RouteDB.RepairGear))
                 RouteDB.NotifyModified();
-            if (ImGui.SliderFloat("Repair percentage threshold", ref RouteDB.RepairPercent, 0, 100))
+            ImGui.SliderFloat("Repair percentage threshold".Loc(), ref RouteDB.RepairPercent, 0, 100);
+            if (ImGui.IsItemDeactivatedAfterEdit())
                 RouteDB.NotifyModified();
-            if (ImGui.Checkbox("Purify collectables during routes", ref RouteDB.PurifyCollectables))
+            if (ImGui.Checkbox("Purify collectables during routes".Loc(), ref RouteDB.PurifyCollectables))
                 RouteDB.NotifyModified();
-            ImGuiComponents.HelpMarker($"Also known as {Addon.GetRow(2160)!.Value.Text}");
-            if (ImGui.Checkbox("Check AutoRetainer during routes", ref RouteDB.AutoRetainerIntegration))
+            ImGuiComponents.HelpMarker("Also known as ??".Loc(Addon.GetRow(2160)!.Value.Text));
+            if (ImGui.Checkbox("Check AutoRetainer during routes".Loc(), ref RouteDB.AutoRetainerIntegration))
                 RouteDB.NotifyModified();
-            ImGuiComponents.HelpMarker($"Will enable multi mode when you have any retainers or submarines returned across any enabled characters. Requires the current character to be set as the Preferred Character and the Teleport to FC config enabled in AutoRetainer.");
+            ImGuiComponents.HelpMarker("Will enable multi mode when you have any retainers or submarines returned across any enabled characters. Requires the current character to be set as the Preferred Character and the Teleport to FC config enabled in AutoRetainer.".Loc());
             if (UICombo.ExcelSheetCombo("##Foods", out Item i, _ => $"[{RouteDB.GlobalFood}] {Item.GetRow((uint)RouteDB.GlobalFood)?.Name}", x => $"[{x.RowId}] {x.Name}", x => x.ItemUICategory.RowId == 46)) {
                 RouteDB.GlobalFood = (int)i.RowId;
                 RouteDB.NotifyModified();
@@ -240,7 +243,7 @@ public class GatherWindow : Window {
                     RouteDB.NotifyModified();
                 }
             }
-            ImGuiComponents.HelpMarker("Food set here will apply to all routes unless overwritten in the route itself.");
+            ImGuiComponents.HelpMarker("Food set here will apply to all routes unless overwritten in the route itself.".Loc());
         }
     }
 
@@ -266,13 +269,13 @@ public class GatherWindow : Window {
             if (ImGuiComponents.IconButton(FontAwesomeIcon.SyncAlt))
                 loop ^= true;
             ImGui.PopStyleColor(2);
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Loop Route");
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Loop Route".Loc());
             ImGui.SameLine();
 
             if (Exec.CurrentRoute != null) {
                 if (ImGuiComponents.IconButton(FontAwesomeIcon.Stop))
                     Exec.Finish();
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Stop Route");
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Stop Route".Loc());
                 ImGui.SameLine();
             }
 
@@ -285,14 +288,14 @@ public class GatherWindow : Window {
                     RouteDB.NotifyModified();
                 }
             }
-            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Delete Route (Hold CTRL)");
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("Delete Route (Hold CTRL)".Loc());
             ImGui.SameLine();
 
             if (ImGuiComponents.IconButton(FontAwesomeIcon.FileExport)) {
                 ImGui.SetClipboardText(JsonConvert.SerializeObject(route));
             }
             if (ImGui.IsItemHovered()) {
-                ImGui.SetTooltip("Export Route (\uE052 Base64)");
+                ImGui.SetTooltip("Export Route".Loc() + " (\uE052 Base64)");
                 if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
                     ImGui.SetClipboardText(Utils.ToCompressedBase64(route));
             }
@@ -305,7 +308,7 @@ public class GatherWindow : Window {
             var name = route.Name;
             var group = route.Group;
             var movementType = Service.Condition[ConditionFlag.InFlight] ? Movement.MountFly : Service.Condition[ConditionFlag.Mounted] ? Movement.MountNoFly : Movement.Normal;
-            ImGui.TextV("Name: ");
+            ImGui.TextV("Name:".Loc() + " ");
             ImGui.SameLine();
             if (ImGui.InputText("##name", ref name, 256)) {
                 route.Name = name;
@@ -314,25 +317,25 @@ public class GatherWindow : Window {
             ImGui.SameLine();
             if (ImGuiComponents.IconButton(FontAwesomeIcon.Plus)) {
                 Exec.Finish();
-                var player = Service.ObjectTable.LocalPlayer;
+                var player = Service.ClientState.LocalPlayer;
                 if (player != null) {
                     route.Waypoints.Add(new() { Position = player.Position, Radius = RouteDB.DefaultWaypointRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType });
                     RouteDB.NotifyModified();
                 }
             }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Add Waypoint: Current Position");
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Add Waypoint: Current Position".Loc());
             ImGui.SameLine();
             if (ImGuiComponents.IconButton(FontAwesomeIcon.UserPlus)) {
                 var target = Service.TargetManager.Target;
                 if (target != null) {
-                    route.Waypoints.Add(new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.BaseId, InteractWithName = target.Name.ToString().ToLower() });
+                    route.Waypoints.Add(new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.DataId, InteractWithName = target.Name.ToString().ToLower() });
                     RouteDB.NotifyModified();
                     Exec.Start(route, route.Waypoints.Count - 1, false, false);
                 }
             }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Add Waypoint: Interact with Target");
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Add Waypoint: Interact with Target".Loc());
 
-            ImGui.TextV("Group: ");
+            ImGui.TextV("Group:".Loc() + " ");
             ImGui.SameLine();
             if (ImGui.InputText("##group", ref group, 256)) {
                 route.Group = group;
@@ -340,7 +343,7 @@ public class GatherWindow : Window {
             }
 
             if (RouteDB.AutoGather) {
-                ImGui.TextV("Item Target: ");
+                ImGui.TextV("Item Target:".Loc() + " ");
                 ImGui.SameLine();
                 if (UICombo.ExcelSheetCombo("##Gatherables", out GatheringItem gatherable, _ => $"[{route.TargetGatherItem}] {Item.GetRow((uint)route.TargetGatherItem)?.Name.ToString()}", x => $"[{x.RowId}] {Item.GetRow(x.Item.RowId)?.Name.ToString()}", x => x.Item.RowId != 0)) {
                     route.TargetGatherItem = (int)gatherable.Item.RowId;
@@ -373,7 +376,7 @@ public class GatherWindow : Window {
         using var popup = ImRaii.Popup("##MassEditing");
         if (!popup) return;
 
-        Utils.DrawSection("Route Settings", ImGuiColors.ParsedGold);
+        Utils.DrawSection("Route Settings".Loc(), ImGuiColors.ParsedGold);
         if (UICombo.ExcelSheetCombo("##Foods", out Item i, _ => $"[{route.Food}] {Item.GetRow((uint)route.Food)?.Name}", x => $"[{x.RowId}] {x.Name}", x => x.ItemUICategory.RowId == 46)) {
             route.Food = (int)i.RowId;
             RouteDB.NotifyModified();
@@ -385,33 +388,33 @@ public class GatherWindow : Window {
                 RouteDB.NotifyModified();
             }
         }
-        ImGuiComponents.HelpMarker("Food set here will apply to this route only and overrides the global food setting.");
+        ImGuiComponents.HelpMarker("Food set here will apply to this route only and overrides the global food setting.".Loc());
 
-        Utils.DrawSection("Mass Editing", ImGuiColors.ParsedGold);
-        ImGui.Checkbox("Pathfind", ref pathfind);
+        Utils.DrawSection("Mass Editing".Loc(), ImGuiColors.ParsedGold);
+        ImGui.Checkbox("Pathfind".Loc(), ref pathfind);
         ImGui.SameLine();
-        if (ImGui.Button("Apply All###Pathfind")) {
+        if (ImGui.Button("Apply All".Loc() + "###Pathfind")) {
             route?.Waypoints.ForEach(x => x.Pathfind = pathfind);
             RouteDB.NotifyModified();
         }
 
-        ImGui.InputUInt("Zone", ref zoneID);
+        ImGui.InputUInt("Zone".Loc(), ref zoneID);
         ImGui.SameLine();
-        if (ImGui.Button("Apply All###Zone")) {
+        if (ImGui.Button("Apply All".Loc() + "###Zone")) {
             route?.Waypoints.ForEach(x => x.ZoneID = zoneID);
             RouteDB.NotifyModified();
         }
 
-        ImGui.InputFloat("Radius", ref radius);
+        ImGui.InputFloat("Radius".Loc(), ref radius);
         ImGui.SameLine();
-        if (ImGui.Button("Apply All###Radius")) {
+        if (ImGui.Button("Apply All".Loc() + "###Radius")) {
             route?.Waypoints.ForEach(x => x.Radius = radius);
             RouteDB.NotifyModified();
         }
 
-        UICombo.Enum("Interaction type", ref interaction);
+        UICombo.Enum("Interaction type".Loc(), ref interaction);
         ImGui.SameLine();
-        if (ImGui.Button("Apply All###Interaction")) {
+        if (ImGui.Button("Apply All".Loc() + "###Interaction")) {
             route?.Waypoints.ForEach(x => x.Interaction = interaction);
             RouteDB.NotifyModified();
         }
@@ -423,27 +426,27 @@ public class GatherWindow : Window {
             wp.ZoneID = Service.ClientState.TerritoryType;
             RouteDB.NotifyModified();
         }
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Set Position to Current");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Set Position to Current".Loc());
         ImGui.SameLine();
-        if (ImGui.InputFloat3("Position", ref wp.Position))
+        if (ImGui.InputFloat3("Position".Loc(), ref wp.Position))
             RouteDB.NotifyModified();
 
-        if (ImGui.InputUInt("Zone ID", ref wp.ZoneID))
+        if (ImGui.InputUInt("Zone ID".Loc(), ref wp.ZoneID))
             RouteDB.NotifyModified();
 
-        if (ImGui.InputFloat("Radius (yalms)", ref wp.Radius))
+        if (ImGui.InputFloat("Radius (yalms)".Loc(), ref wp.Radius))
             RouteDB.NotifyModified();
 
-        if (UICombo.Enum("Movement mode", ref wp.Movement))
+        if (UICombo.Enum("Movement mode".Loc(), ref wp.Movement))
             RouteDB.NotifyModified();
 
         ImGui.SameLine();
         using (var noNav = ImRaii.Disabled(!Service.Navmesh.IsEnabled)) {
-            if (ImGui.Checkbox("Pathfind?", ref wp.Pathfind))
+            if (ImGui.Checkbox("Pathfind?".Loc(), ref wp.Pathfind))
                 RouteDB.NotifyModified();
         }
         if (!Service.Navmesh.IsEnabled)
-            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip($"This features requires {NavmeshIPC.Name} to be installed.");
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("This features requires ?? to be installed.".Loc(NavmeshIPC.Name));
 
         if (ImGuiComponents.IconButton(FontAwesomeIcon.UserPlus)) {
             if (wp.InteractWithOID == default) {
@@ -452,59 +455,60 @@ public class GatherWindow : Window {
                     wp.Position = target.Position;
                     wp.Radius = RouteDB.DefaultInteractionRadius;
                     wp.InteractWithName = target.Name.ToString().ToLower();
-                    wp.InteractWithOID = target.BaseId;
+                    wp.InteractWithOID = target.DataId;
                     RouteDB.NotifyModified();
                 }
             }
             else
                 wp.InteractWithOID = default;
         }
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Add/Remove target from waypoint");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Add/Remove target from waypoint".Loc());
         ImGui.SameLine();
         if (ImGui.IconButton(FontAwesomeIcon.CommentDots)) {
             wp.showInteractions ^= true;
             RouteDB.NotifyModified();
         }
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Toggle Interactions");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Toggle Interactions".Loc());
         ImGui.SameLine();
         if (ImGui.IconButton(FontAwesomeIcon.Clock)) {
             wp.showWaits ^= true;
             RouteDB.NotifyModified();
         }
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Toggle Waits");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Toggle Waits".Loc());
 
         if (wp.showInteractions) {
-            if (UICombo.Enum("Interaction Type", ref wp.Interaction))
+            if (UICombo.Enum("Interaction Type".Loc(), ref wp.Interaction))
                 RouteDB.NotifyModified();
             switch (wp.Interaction) {
                 case InteractionType.None: break;
                 case InteractionType.Standard: break;
                 case InteractionType.StartRoute:
-                    if (UICombo.String("Route Name", [.. RouteDB.Routes.Select(r => r.Name)], ref wp.RouteName))
+                    if (UICombo.String("Route Name".Loc(), [.. RouteDB.Routes.Select(r => r.Name)], ref wp.RouteName))
                         RouteDB.NotifyModified();
                     break;
                 case InteractionType.NodeScan:
                     ImGui.SameLine();
                     Utils.WorkInProgressIcon();
-                    ImGuiComponents.HelpMarker("Node scanning will check the object table for nearby targetable gathering points, failing that will use your gatherer's reveal node ability and navigate to that. It will create a new phantom waypoint with the aforementioned information and navigate to it. Every phantom waypoint will also node scan. These special waypoints do not get saved to the route.");
-                    ImGui.TextUnformatted("This feature will have trouble with land nodes at the moment.");
+                    ImGuiComponents.HelpMarker("Node scanning will check the object table for nearby targetable gathering points, failing that will use your gatherer's reveal node ability and navigate to that. It will create a new phantom waypoint with the aforementioned information and navigate to it. Every phantom waypoint will also node scan. These special waypoints do not get saved to the route.".Loc());
+                    ImGui.TextUnformatted("This feature will have trouble with land nodes at the moment.".Loc());
                     break;
             }
         }
 
         if (wp.showWaits) {
-            if (ImGui.InputFloat2("Eorzean Time Wait", ref wp.WaitTimeET))
+            if (ImGui.InputFloat2("Eorzean Time Wait".Loc(), ref wp.WaitTimeET))
                 RouteDB.NotifyModified();
-            if (ImGui.SliderInt("Wait (ms)", ref wp.WaitTimeMs, 0, 60000))
+            ImGui.SliderInt("Wait (ms)".Loc(), ref wp.WaitTimeMs, 0, 60000);
+            if (ImGui.IsItemDeactivatedAfterEdit())
                 RouteDB.NotifyModified();
-            if (UICombo.Enum("Wait for Condition", ref wp.WaitForCondition))
+            if (UICombo.Enum("Wait for Condition".Loc(), ref wp.WaitForCondition))
                 RouteDB.NotifyModified();
         }
     }
 
     private void ContextMenuGroup(string group) {
         var old = group;
-        ImGui.TextV("Name: ");
+        ImGui.TextV("Name:".Loc() + " ");
         ImGui.SameLine();
         if (ImGui.InputText("##groupname", ref group, 256)) {
             RouteDB.Routes.Where(r => r.Group == old).ToList().ForEach(r => r.Group = group);
@@ -513,31 +517,31 @@ public class GatherWindow : Window {
     }
 
     private void ContextMenuWaypoint(Route r, int i) {
-        if (ImGui.MenuItem("Execute this step only"))
+        if (ImGui.MenuItem("Execute this step only".Loc()))
             Exec.Start(r, i, false, false, r.Waypoints[i].Pathfind);
 
-        if (ImGui.MenuItem("Execute route once starting from this step"))
+        if (ImGui.MenuItem("Execute route once starting from this step".Loc()))
             Exec.Start(r, i, true, false, r.Waypoints[i].Pathfind);
 
-        if (ImGui.MenuItem("Execute route starting from this step and then loop"))
+        if (ImGui.MenuItem("Execute route starting from this step and then loop".Loc()))
             Exec.Start(r, i, true, true, r.Waypoints[i].Pathfind);
 
         var movementType = Service.Condition[ConditionFlag.InFlight] ? Movement.MountFly : Service.Condition[ConditionFlag.Mounted] ? Movement.MountNoFly : Movement.Normal;
         var target = Service.TargetManager.Target;
 
-        if (ImGui.MenuItem($"Swap to {(r.Waypoints[i].InteractWithOID != default ? "normal waypoint" : "interact waypoint")}")) {
+        if (ImGui.MenuItem("Swap to ??".Loc((r.Waypoints[i].InteractWithOID != default ? "normal waypoint" : "interact waypoint").Loc()))) {
             _postDraw.Add(() => {
-                r.Waypoints[i].InteractWithOID = r.Waypoints[i].InteractWithOID != default ? default : target?.BaseId ?? default;
+                r.Waypoints[i].InteractWithOID = r.Waypoints[i].InteractWithOID != default ? default : target?.DataId ?? default;
                 RouteDB.NotifyModified();
             });
         }
 
-        if (ImGui.MenuItem("Insert step above")) {
+        if (ImGui.MenuItem("Insert step above".Loc())) {
             _postDraw.Add(() => {
                 if (i > 0 && i < r.Waypoints.Count) {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
-                    if (Service.ObjectTable.LocalPlayer != null) {
+                    if (Service.ClientState.LocalPlayer != null) {
                         r.Waypoints.Insert(i, new() { Position = Player.Position, Radius = RouteDB.DefaultWaypointRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType });
                         RouteDB.NotifyModified();
                     }
@@ -550,19 +554,19 @@ public class GatherWindow : Window {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
                     if (target != null) {
-                        r.Waypoints.Insert(i, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.BaseId, InteractWithName = target.Name.ToString().ToLower() });
+                        r.Waypoints.Insert(i, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.DataId, InteractWithName = target.Name.ToString().ToLower() });
                         RouteDB.NotifyModified();
                     }
                 }
             });
         }
 
-        if (ImGui.MenuItem("Insert step below")) {
+        if (ImGui.MenuItem("Insert step below".Loc())) {
             _postDraw.Add(() => {
                 if (i > 0 && i < r.Waypoints.Count) {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
-                    if (Service.ObjectTable.LocalPlayer != null) {
+                    if (Service.ClientState.LocalPlayer != null) {
                         r.Waypoints.Insert(i + 1, new() { Position = Player.Position, Radius = RouteDB.DefaultWaypointRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType });
                         RouteDB.NotifyModified();
                     }
@@ -575,14 +579,14 @@ public class GatherWindow : Window {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
                     if (target != null) {
-                        r.Waypoints.Insert(i + 1, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.BaseId, InteractWithName = target.Name.ToString().ToLower() });
+                        r.Waypoints.Insert(i + 1, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.DataId, InteractWithName = target.Name.ToString().ToLower() });
                         RouteDB.NotifyModified();
                     }
                 }
             });
         }
 
-        if (ImGui.MenuItem("Move up")) {
+        if (ImGui.MenuItem("Move up".Loc())) {
             _postDraw.Add(() => {
                 if (i > 0 && i < r.Waypoints.Count) {
                     if (Exec.CurrentRoute == r)
@@ -595,7 +599,7 @@ public class GatherWindow : Window {
             });
         }
 
-        if (ImGui.MenuItem("Move down")) {
+        if (ImGui.MenuItem("Move down".Loc())) {
             _postDraw.Add(() => {
                 if (i + 1 < r.Waypoints.Count) {
                     if (Exec.CurrentRoute == r)
@@ -608,7 +612,7 @@ public class GatherWindow : Window {
             });
         }
 
-        if (ImGui.MenuItem("Delete")) {
+        if (ImGui.MenuItem("Delete".Loc())) {
             _postDraw.Add(() => {
                 if (i < r.Waypoints.Count) {
                     if (Exec.CurrentRoute == r)

@@ -1,7 +1,7 @@
 ﻿using Dalamud.Interface.Utility.Raii;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
-using Dalamud.Bindings.ImGui;
+using ImGuiNET;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -14,7 +14,7 @@ unsafe class ExportWindow : UIAttachedWindow {
     private readonly ExportDebug _debug = new();
     private readonly Throttle _exportThrottle = new(); // export seems to close & reopen window?..
 
-    public ExportWindow() : base("Exports Automation", "MJIDisposeShop", new(400, 600)) {
+    public ExportWindow() : base("Exports Automation".Loc(), "MJIDisposeShop", new(400, 600)) {
         _config = Service.Config.Get<ExportConfig>();
     }
 
@@ -33,7 +33,7 @@ unsafe class ExportWindow : UIAttachedWindow {
     public override void Draw() {
         using var tabs = ImRaii.TabBar("Tabs");
         if (tabs) {
-            using (var tab = ImRaii.TabItem("Main"))
+            using (var tab = ImRaii.TabItem("Main".Loc()))
                 if (tab)
                     DrawMain();
             using (var tab = ImRaii.TabItem("Debug"))
@@ -43,20 +43,24 @@ unsafe class ExportWindow : UIAttachedWindow {
     }
 
     private void DrawMain() {
-        if (ImGui.Checkbox("Auto Export", ref _config.AutoSell))
+        if (ImGui.Checkbox("Auto Export".Loc(), ref _config.AutoSell))
             _config.NotifyModified();
         ImGui.PushItemWidth(150);
-        if (ImGui.SliderInt("Sell normal above", ref _config.NormalLimit, 0, 999))
+        ImGui.SliderInt("Sell normal above".Loc(), ref _config.NormalLimit, 0, 999);
+        if (ImGui.IsItemDeactivatedAfterEdit())
             _config.NotifyModified();
-        if (ImGui.SliderInt("Sell granary above", ref _config.GranaryLimit, 0, 999))
+        ImGui.SliderInt("Sell granary above".Loc(), ref _config.GranaryLimit, 0, 999);
+        if (ImGui.IsItemDeactivatedAfterEdit())
             _config.NotifyModified();
-        if (ImGui.SliderInt("Sell farm above", ref _config.FarmLimit, 0, 999))
+        ImGui.SliderInt("Sell farm above".Loc(), ref _config.FarmLimit, 0, 999);
+        if (ImGui.IsItemDeactivatedAfterEdit())
             _config.NotifyModified();
-        if (ImGui.SliderInt("Sell pasture above", ref _config.PastureLimit, 0, 999))
+        ImGui.SliderInt("Sell pasture above".Loc(), ref _config.PastureLimit, 0, 999);
+        if (ImGui.IsItemDeactivatedAfterEdit())
             _config.NotifyModified();
         ImGui.PopItemWidth();
 
-        if (ImGui.Button("Sell everything above configured limits"))
+        if (ImGui.Button("Sell everything above configured limits".Loc()))
             AutoExport();
     }
 
@@ -71,7 +75,7 @@ unsafe class ExportWindow : UIAttachedWindow {
         }
         catch (Exception ex) {
             Service.Log.Error($"Error: {ex}");
-            Service.ChatGui.PrintError($"Auto export error: {ex.Message}");
+            Service.ChatGui.PrintError("Auto export error: ??".Loc(ex.Message));
         }
     }
 
@@ -82,8 +86,8 @@ unsafe class ExportWindow : UIAttachedWindow {
         var data = agent->Data;
         List<AtkValue> args =
         [
-            new() { Type = AtkValueType.UInt },
-            new() { Type = AtkValueType.UInt, Int = limit }
+            new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt },
+            new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt, Int = limit }
         ];
         var numItems = 0;
         foreach (var item in data->PerCategoryItems[category].AsSpan()) {
@@ -96,18 +100,18 @@ unsafe class ExportWindow : UIAttachedWindow {
             if (item.Value->UseIslanderCowries) {
                 islanderCowries += value;
                 if (islanderCowries > data->CurrencyStackSizes[1])
-                    throw new Exception($"Islander cowries would overcap");
+                    throw new Exception("Islander cowries would overcap".Loc());
             }
             else {
                 seafarerCowries += value;
                 if (seafarerCowries > data->CurrencyStackSizes[0])
-                    throw new Exception($"Seafarer cowries would overcap");
+                    throw new Exception("Seafarer cowries would overcap".Loc());
             }
 
-            args.Add(new() { Type = AtkValueType.UInt, UInt = item.Value->ShopItemRowId });
-            args.Add(new() { Type = AtkValueType.UInt, Int = export });
+            args.Add(new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt, UInt = item.Value->ShopItemRowId });
+            args.Add(new() { Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt, Int = export });
             if (++numItems > 64)
-                throw new Exception($"Too many items to export, please report this as a bug!");
+                throw new Exception("Too many items to export, please report this as a bug!".Loc());
         }
         var argsSpan = CollectionsMarshal.AsSpan(args);
         argsSpan[0].Int = numItems;

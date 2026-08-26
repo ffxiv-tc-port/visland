@@ -2,7 +2,7 @@ using Dalamud.Game;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.Textures;
 using Dalamud.Interface.Utility.Raii;
-using Dalamud.Bindings.ImGui;
+using ImGuiNET;
 using Lumina.Excel;
 using Lumina.Excel.Sheets;
 using System;
@@ -46,57 +46,57 @@ public unsafe class WorkshopOCImport {
 
         var thisSeason = _seasonDB.CurrentSeason(false);
         var nextSeason = _seasonDB.CurrentSeason(true);
-        ImGui.TextUnformatted($"Archive seasons {_seasonDB.RangeStart}-{_seasonDB.RangeEnd} (cycle {_seasonDB.CycleLength})");
-        ImGui.TextUnformatted($"This week → Season {thisSeason}" + (_seasonDB.TryGet(thisSeason, out var cur) ? $" ({cur.Date})" : " (missing)"));
-        ImGui.TextUnformatted($"Next week → Season {nextSeason}" + (_seasonDB.TryGet(nextSeason, out var nxt) ? $" ({nxt.Date})" : " (missing)"));
+        ImGui.TextUnformatted("Archive seasons ??-?? (cycle ??)".Loc(_seasonDB.RangeStart, _seasonDB.RangeEnd, _seasonDB.CycleLength));
+        ImGui.TextUnformatted("This week → Season ??".Loc(thisSeason) + (_seasonDB.TryGet(thisSeason, out var cur) ? $" ({cur.Date})" : $" ({"missing".Loc()})"));
+        ImGui.TextUnformatted("Next week → Season ??".Loc(nextSeason) + (_seasonDB.TryGet(nextSeason, out var nxt) ? $" ({nxt.Date})" : $" ({"missing".Loc()})"));
 
-        if (ImGui.Button("Load This Week"))
+        if (ImGui.Button("Load This Week".Loc()))
             LoadSeasonRecs(false);
         ImGui.SameLine();
-        if (ImGui.Button("Load Next Week"))
+        if (ImGui.Button("Load Next Week".Loc()))
             LoadSeasonRecs(true);
-        ImGuiComponents.HelpMarker("Loads Overseas Casuals archive recommendations for the mapped season, then applies the favour mode from Settings.");
+        ImGuiComponents.HelpMarker("Loads Overseas Casuals archive recommendations for the mapped season, then applies the favour mode from Settings.".Loc());
 
-        if (ImGui.Button("Import Recommendations From Clipboard"))
+        if (ImGui.Button("Import Recommendations From Clipboard".Loc()))
             ImportRecsFromClipboard(false);
-        ImGuiComponents.HelpMarker("Legacy importer for schedules copied from Discord.\n" +
-                        "The importer detects item names (without \"Isleworks\" et al) on each line.\n" +
-                        "You can copy an entire workshop schedule from discord, junk included.");
+        ImGuiComponents.HelpMarker("Legacy importer for schedules copied from Discord.".Loc() + "\n" +
+                        "The importer detects item names (without \"Isleworks\" et al) on each line.".Loc() + "\n" +
+                        "You can copy an entire workshop schedule from discord, junk included.".Loc());
 
         if (Recommendations.Empty)
             return;
 
         if (_loadedSeason != 0)
-            ImGui.TextUnformatted($"Loaded season {_loadedSeason}" + (_loadedNextWeek ? " (next week)" : " (this week)"));
+            ImGui.TextUnformatted("Loaded season ??".Loc(_loadedSeason) + $" ({(_loadedNextWeek ? "next week" : "this week").Loc()})");
 
         ImGui.Separator();
 
         if (_config.UseFavourSolver) {
-            ImGui.TextUnformatted("Advanced favour overrides");
-            ImGuiComponents.HelpMarker("Manual overrides for the currently loaded schedule. Archive loads already apply the favour mode from Settings.");
+            ImGui.TextUnformatted("Advanced favour overrides".Loc());
+            ImGuiComponents.HelpMarker("Manual overrides for the currently loaded schedule. Archive loads already apply the favour mode from Settings.".Loc());
 
-            ImGui.TextV("Override 4th workshop with favours:");
+            ImGui.TextV("Override 4th workshop with favours:".Loc());
             ImGui.SameLine();
-            if (ImGui.Button($"This Week##4th"))
+            if (ImGui.Button("This Week".Loc() + "##4th"))
                 OverrideSideRecsLastWorkshopSolver(false);
             ImGui.SameLine();
-            if (ImGui.Button($"Next Week##4th"))
+            if (ImGui.Button("Next Week".Loc() + "##4th"))
                 OverrideSideRecsLastWorkshopSolver(true);
 
-            ImGui.TextV("Override closest workshops with favours:");
+            ImGui.TextV("Override closest workshops with favours:".Loc());
             ImGui.SameLine();
-            if (ImGui.Button($"This Week##asap"))
+            if (ImGui.Button("This Week".Loc() + "##asap"))
                 OverrideSideRecsAsapSolver(false);
             ImGui.SameLine();
-            if (ImGui.Button($"Next Week##asap"))
+            if (ImGui.Button("Next Week".Loc() + "##asap"))
                 OverrideSideRecsAsapSolver(true);
 
-            if (ImGui.Button("Override 4th workshop from clipboard"))
+            if (ImGui.Button("Override 4th workshop from clipboard".Loc()))
                 OverrideSideRecsLastWorkshopClipboard();
-            if (ImGui.Button("Override closest workshops from clipboard"))
+            if (ImGui.Button("Override closest workshops from clipboard".Loc()))
                 OverrideSideRecsAsapClipboard();
 
-            if (ImGuiComponents.IconButtonWithText(Dalamud.Interface.FontAwesomeIcon.Clipboard, "Copy /favors (this week)")) {
+            if (ImGuiComponents.IconButtonWithText(Dalamud.Interface.FontAwesomeIcon.Clipboard, "Copy /favors (this week)".Loc())) {
                 try {
                     ImGui.SetClipboardText(_favourReader.CreateFavourRequestCommand(false));
                 }
@@ -105,7 +105,7 @@ public unsafe class WorkshopOCImport {
                 }
             }
             ImGui.SameLine();
-            if (ImGuiComponents.IconButtonWithText(Dalamud.Interface.FontAwesomeIcon.Clipboard, "Copy /favors (next week)")) {
+            if (ImGuiComponents.IconButtonWithText(Dalamud.Interface.FontAwesomeIcon.Clipboard, "Copy /favors (next week)".Loc())) {
                 try {
                     ImGui.SetClipboardText(_favourReader.CreateFavourRequestCommand(true));
                 }
@@ -117,16 +117,16 @@ public unsafe class WorkshopOCImport {
             ImGui.Separator();
         }
 
-        ImGui.TextV("Set Schedule:");
+        ImGui.TextV("Set Schedule:".Loc());
         ImGui.SameLine();
-        if (ImGui.Button("This Week"))
+        if (ImGui.Button("This Week".Loc()))
             ApplyRecommendations(false);
         ImGui.SameLine();
-        if (ImGui.Button("Next Week"))
+        if (ImGui.Button("Next Week".Loc()))
             ApplyRecommendations(true);
         ImGui.SameLine();
         var ignoreFourth = _applier.IgnoreFourthWorkshop;
-        if (ImGui.Checkbox("Ignore 4th Workshop", ref ignoreFourth))
+        if (ImGui.Checkbox("Ignore 4th Workshop".Loc(), ref ignoreFourth))
             _applier.IgnoreFourthWorkshop = ignoreFourth;
         ImGui.Separator();
 
@@ -139,7 +139,7 @@ public unsafe class WorkshopOCImport {
             _loadedSeason = 0;
         }
         catch (Exception ex) {
-            ReportError($"Error: {ex.Message}", silent);
+            ReportError("Error: ??".Loc(ex.Message), silent);
         }
     }
 
@@ -156,13 +156,13 @@ public unsafe class WorkshopOCImport {
                     ApplySeason(nextWeek, _favourReader.ReadFavourState(nextWeek));
                 }
                 catch (Exception ex) {
-                    ReportError($"Error: {ex.Message}", silent);
+                    ReportError("Error: ??".Loc(ex.Message), silent);
                 }
                 return true;
             });
         }
         catch (Exception ex) {
-            ReportError($"Error: {ex.Message}", silent);
+            ReportError("Error: ??".Loc(ex.Message), silent);
         }
     }
 
@@ -183,26 +183,26 @@ public unsafe class WorkshopOCImport {
 
         using var scrollSection = ImRaii.Child("ScrollableSection");
         foreach ((var c, var r) in Recommendations.Enumerate()) {
-            ImGui.TextV($"Cycle {c}:");
+            ImGui.TextV("Cycle ??:".Loc(c));
             ImGui.SameLine();
-            if (ImGui.Button($"Set on Active Cycle##{c}"))
+            if (ImGui.Button("Set on Active Cycle".Loc() + $"##{c}"))
                 _applier.ApplyRecommendationToCurrentCycle(r);
 
             using var outerTable = ImRaii.Table($"table_{c}", r.Workshops.Count, tableFlags);
             if (outerTable) {
                 var workshopLimit = r.Workshops.Count - (_applier.IgnoreFourthWorkshop && r.Workshops.Count > 1 ? 1 : 0);
                 if (r.Workshops.Count <= 1) {
-                    ImGui.TableSetupColumn(_applier.IgnoreFourthWorkshop ? $"Workshops 1-{maxWorkshops - 1}" : "All Workshops");
+                    ImGui.TableSetupColumn(_applier.IgnoreFourthWorkshop ? "Workshops 1-??".Loc(maxWorkshops - 1) : "All Workshops".Loc());
                 }
                 else if (r.Workshops.Count < maxWorkshops) {
                     var numDuplicates = 1 + maxWorkshops - r.Workshops.Count;
-                    ImGui.TableSetupColumn($"Workshops 1-{numDuplicates}");
+                    ImGui.TableSetupColumn("Workshops 1-??".Loc(numDuplicates));
                     for (var i = 1; i < workshopLimit; ++i)
-                        ImGui.TableSetupColumn($"Workshop {i + numDuplicates}");
+                        ImGui.TableSetupColumn("Workshop ??".Loc(i + numDuplicates));
                 }
                 else {
                     for (var i = 0; i < workshopLimit; ++i)
-                        ImGui.TableSetupColumn($"Workshop {i + 1}");
+                        ImGui.TableSetupColumn("Workshop ??".Loc(i + 1));
                 }
                 ImGui.TableHeadersRow();
 
@@ -219,7 +219,7 @@ public unsafe class WorkshopOCImport {
                             var iconSize = ImGui.GetTextLineHeight() * 1.5f;
                             var iconSizeVec = new Vector2(iconSize, iconSize);
                             var craftworkItemIcon = _craftSheet.GetRow(rec.CraftObjectId)!.Item.Value!.Icon;
-                            ImGui.Image(Service.TextureProvider.GetFromGameIcon(new GameIconLookup(craftworkItemIcon)).GetWrapOrEmpty().Handle, iconSizeVec, Vector2.Zero, Vector2.One);
+                            ImGui.Image(Service.TextureProvider.GetFromGameIcon(new GameIconLookup(craftworkItemIcon)).GetWrapOrEmpty().ImGuiHandle, iconSizeVec, Vector2.Zero, Vector2.One);
 
                             ImGui.TableNextColumn();
                             ImGui.TextUnformatted(_botNames[(int)rec.CraftObjectId]);
@@ -234,11 +234,11 @@ public unsafe class WorkshopOCImport {
         try {
             var overrideRecs = _parser.ParseRecOverrides(ImGui.GetClipboardText());
             if (overrideRecs.Count > Recommendations.Schedules.Count)
-                throw new Exception($"Override list is longer than base schedule: {overrideRecs.Count} > {Recommendations.Schedules.Count}");
+                throw new Exception("Override list is longer than base schedule: ?? > ??".Loc(overrideRecs.Count, Recommendations.Schedules.Count));
             OverrideSideRecsLastWorkshop(overrideRecs);
         }
         catch (Exception ex) {
-            ReportError($"Error: {ex.Message}");
+            ReportError("Error: ??".Loc(ex.Message));
         }
     }
 
@@ -257,18 +257,18 @@ public unsafe class WorkshopOCImport {
             r.Workshops.Add(o);
         }
         if (overrides.Count > Recommendations.Schedules.Count)
-            Service.ChatGui.Print("Warning: couldn't fit all overrides into base schedule", "visland");
+            Service.ChatGui.Print("Warning: couldn't fit all overrides into base schedule".Loc(), "visland");
     }
 
     private void OverrideSideRecsAsapClipboard() {
         try {
             var overrideRecs = _parser.ParseRecOverrides(ImGui.GetClipboardText());
             if (overrideRecs.Count > Recommendations.Schedules.Count * 4)
-                throw new Exception($"Override list is longer than base schedule: {overrideRecs.Count} > 4 * {Recommendations.Schedules.Count}");
+                throw new Exception("Override list is longer than base schedule: ?? > 4 * ??".Loc(overrideRecs.Count, Recommendations.Schedules.Count));
             OverrideSideRecsAsap(overrideRecs);
         }
         catch (Exception ex) {
-            ReportError($"Error: {ex.Message}");
+            ReportError("Error: ??".Loc(ex.Message));
         }
     }
 
@@ -296,7 +296,7 @@ public unsafe class WorkshopOCImport {
             nextOverride += batchSize;
         }
         if (nextOverride < overrides.Count)
-            Service.ChatGui.Print("Warning: couldn't fit all overrides into base schedule", "visland");
+            Service.ChatGui.Print("Warning: couldn't fit all overrides into base schedule".Loc(), "visland");
     }
 
     private void ApplyRecommendations(bool nextWeek) {
@@ -304,7 +304,7 @@ public unsafe class WorkshopOCImport {
             _applier.ApplyRecommendations(Recommendations, nextWeek);
         }
         catch (Exception ex) {
-            ReportError($"Error: {ex.Message}");
+            ReportError("Error: ??".Loc(ex.Message));
         }
     }
 
