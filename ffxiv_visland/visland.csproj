@@ -1,14 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Sdk="Dalamud.NET.Sdk/12.0.2">
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
 	<PropertyGroup>
-		<BuildNumberFile>$(MSBuildProjectDirectory)\BuildNumber.txt</BuildNumberFile>
-		<_PreviousBuildNumber Condition="Exists('$(BuildNumberFile)')">$([System.IO.File]::ReadAllText('$(BuildNumberFile)').Trim())</_PreviousBuildNumber>
-		<_PreviousBuildNumber Condition="'$(_PreviousBuildNumber)' == ''">0</_PreviousBuildNumber>
-		<BuildNumber>$([MSBuild]::Add($(_PreviousBuildNumber), 1))</BuildNumber>
-		<VersionPrefix>7.15.0</VersionPrefix>
-		<Version>$(VersionPrefix).$(BuildNumber)</Version>
-		<AssemblyVersion>$(Version)</AssemblyVersion>
-		<FileVersion>$(Version)</FileVersion>
+		<Version>0.0.0.0</Version>
 		<LangVersion>preview</LangVersion>
 
 		<Author>veyn, croizat</Author>
@@ -19,10 +12,6 @@
 		<RepoUrl>https://github.com/ffxiv-tc-port/visland</RepoUrl>
 		<IconUrl>https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/icons/visland.png</IconUrl>
 	</PropertyGroup>
-
-	<Target Name="PersistBuildNumber" AfterTargets="Build">
-		<WriteLinesToFile File="$(BuildNumberFile)" Lines="$(BuildNumber)" Overwrite="true" />
-	</Target>
 
 	<PropertyGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))'">
 		<DalamudLibPath>$(DALAMUD_HOME)/</DalamudLibPath>

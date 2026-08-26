@@ -41,7 +41,7 @@ public static unsafe class Player {
     public static uint MaxGp => Service.ClientState.LocalPlayer?.MaxGp ?? 0;
     public static int Gathering => PlayerState.Instance()->Attributes[72];
     public static int Perception => PlayerState.Instance()->Attributes[73];
-    public static bool IsOnIsland => MJIManager.Instance() != null && MJIManager.Instance()->IsPlayerInSanctuary != 0;
+    public static bool IsOnIsland => MJIManager.Instance() != null && MJIManager.Instance()->IsPlayerInSanctuary;
 
     public static float DistanceTo(Vector3 pos) => Object == null ? float.MaxValue : Vector3.Distance(Object.Position, pos);
 
