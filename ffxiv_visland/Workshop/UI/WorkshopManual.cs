@@ -12,7 +12,8 @@ public class WorkshopManual {
     private string _filter = "";
 
     public void Draw() {
-        ImGui.InputText("Filter", ref _filter, 256);
+        // "###Filter" keeps the ImGui id stable across languages; only the label moves.
+        ImGui.InputText("Filter".Loc() + "###Filter", ref _filter, 256);
         var sheetCraft = MJICraftworksObject.Get();
         foreach (var row in sheetCraft) {
             var name = row.Item.Value.Name.ToString() ?? "";
@@ -22,7 +23,7 @@ public class WorkshopManual {
         }
 
         ImGui.Separator();
-        ImGui.TextUnformatted("Recent items:");
+        ImGui.TextUnformatted("Recent items:".Loc());
         foreach (var i in _recents.ToArray()) // copy, since we might modify it...
         {
             DrawRowCraft(sheetCraft.GetRow(i)!, true);
@@ -64,7 +65,17 @@ public class WorkshopManual {
     }
 
     private unsafe void AddToScheduleSingle(MJICraftworksObject row, int workshopIndex) {
-        var agentData = AgentMJICraftSchedule.Instance()->Data;
+        // 🔴 原本是 AgentMJICraftSchedule.Instance()->Data 兩層裸讀,只靠「這個分頁畫得出來就
+        //    代表 PreOpenCheck 過了」這個別處建立的前提。改成本地判空:取不到就安靜返回。
+        //    這裡刻意不用 ReportError —— AddToSchedule 一次會呼叫本方法最多四次,
+        //    走聊天視窗會變成連噴四行。
+        var agent = AgentMJICraftSchedule.Instance();
+        if (agent == null || agent->Data == null) {
+            Service.Log.Information($"Not scheduling {row.RowId} to workshop {workshopIndex + 1}: craft schedule agent/data unavailable");
+            return;
+        }
+
+        var agentData = agent->Data;
         var slotMask = (1u << row.CraftingTime) - 1;
         var startingCycle = 0;
         var maxCycle = 24 - row.CraftingTime;

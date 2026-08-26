@@ -18,16 +18,18 @@ namespace visland;
 public sealed class Plugin : IDalamudPlugin {
     public static string Name => "visland";
     public static string Repo => "https://puni.sh/api/repository/veyn";
-    internal static string HelpMessage => "Opens the Gathering Menu\n" +
-        $"/{Name} moveto <X> <Y> <Z> → move to raw coordinates\n" +
-        $"/{Name} movedir <X> <Y> <Z> → move this many units over (relative to player facing)\n" +
-        $"/{Name} stop → stop current route\n" +
-        $"/{Name} pause → pause current route\n" +
-        $"/{Name} resume → resume current route\n" +
-        $"/{Name} exec <name> → run route by name continuously\n" +
-        $"/{Name} execonce <name> → run route by name once\n" +
-        $"/{Name} exectemp <base64 route> → run unsaved route continuously\n" +
-        $"/{Name} exectemponce <base64 route> → run unsaved route once";
+    // Only the text after each arrow is translated; everything to the left of it is
+    // literal command syntax the player has to type, so it must stay as-is.
+    internal static string HelpMessage => "Opens the Gathering Menu".Loc() + "\n" +
+        $"/{Name} moveto <X> <Y> <Z> → " + "move to raw coordinates".Loc() + "\n" +
+        $"/{Name} movedir <X> <Y> <Z> → " + "move this many units over (relative to player facing)".Loc() + "\n" +
+        $"/{Name} stop → " + "stop current route".Loc() + "\n" +
+        $"/{Name} pause → " + "pause current route".Loc() + "\n" +
+        $"/{Name} resume → " + "resume current route".Loc() + "\n" +
+        $"/{Name} exec <name> → " + "run route by name continuously".Loc() + "\n" +
+        $"/{Name} execonce <name> → " + "run route by name once".Loc() + "\n" +
+        $"/{Name} exectemp <base64 route> → " + "run unsaved route continuously".Loc() + "\n" +
+        $"/{Name} exectemponce <base64 route> → " + "run unsaved route once".Loc();
 
     internal static Plugin P = null!;
 
@@ -111,7 +113,7 @@ public sealed class Plugin : IDalamudPlugin {
     }
 
     internal void MoveToCommand(string[] args, bool relativeToPlayer) {
-        var originActor = relativeToPlayer ? Service.ClientState.LocalPlayer : null;
+        var originActor = relativeToPlayer ? Service.ObjectTable.LocalPlayer : null;
         var origin = originActor?.Position ?? new();
         var offset = new Vector3(float.Parse(args[1], CultureInfo.InvariantCulture), float.Parse(args[2], CultureInfo.InvariantCulture), float.Parse(args[3], CultureInfo.InvariantCulture));
         var route = new GatherRouteDB.Route { Name = "Temporary", Waypoints = [] };

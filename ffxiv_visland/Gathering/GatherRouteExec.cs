@@ -63,12 +63,26 @@ public class GatherRouteExec : IDisposable {
     private readonly Queue<long> _recentErrors = new();
     private const int MaxRecentErrors = 5;
 
+    // The repair chain runs on a task manager that clears its entire queue when a step exceeds 20s, and
+    // CanRepairAny() is recomputed from live durability rather than latched. A repair that can never
+    // succeed (repair action unusable, dark matter consumed mid-route, window never opens) would
+    // therefore be re-queued every 20s forever and the route would silently stall in place.
+    private int _repairAttempts;
+    private const int MaxRepairAttempts = 3;
+
     public GatherRouteExec() {
         RouteDB = Service.Config.Get<GatherRouteDB>();
+        // Reconnect the "stop route on error" chain: upstream's pre-reorg code had these
+        // subscriptions commented out and the reorg (683203a) dropped them entirely, leaving both
+        // CheckToDisable overloads dead code and the UI checkbox permanently disabled.
+        Service.ChatGui.CheckMessageHandled += CheckToDisable;
+        Service.Toasts.ErrorToast += CheckToDisable;
         Service.Framework.Update += Update;
     }
 
     public void Dispose() {
+        Service.ChatGui.CheckMessageHandled -= CheckToDisable;
+        Service.Toasts.ErrorToast -= CheckToDisable;
         Service.Framework.Update -= Update;
         Finish();
         _camera.Dispose();
@@ -84,6 +98,7 @@ public class GatherRouteExec : IDisposable {
         Loop = loopAtEnd;
         route.Waypoints[waypoint].Pathfind = pathfind;
         Pathfind = pathfind;
+        _repairAttempts = 0;
         _camera.Enabled = true;
         _movement.Enabled = true;
     }
@@ -145,7 +160,7 @@ public class GatherRouteExec : IDisposable {
         if (wp.IsPhantom && wp.InteractWithOID == 0) {
             var obj = Service.ObjectTable.FirstOrDefault(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable && o?.Position.X - CurrentRoute.Waypoints[CurrentWaypoint].InteractWithPosition.X < 5 && o?.Position.Z - CurrentRoute.Waypoints[CurrentWaypoint].InteractWithPosition.Z < 5, null);
             if (obj != null) {
-                wp.InteractWithOID = obj.DataId;
+                wp.InteractWithOID = obj.BaseId;
                 wp.InteractWithName = obj.Name.TextValue;
                 wp.InteractWithPosition = obj.Position;
             }
@@ -186,7 +201,7 @@ public class GatherRouteExec : IDisposable {
 
         if (needToGetCloser) {
             // skip current waypoint if target isn't there
-            if (wp.IsNode && Player.DistanceTo(wp.Position) < 50 && !Service.ObjectTable.Any(x => x.DataId == wp.InteractWithOID && x.IsTargetable)) {
+            if (wp.IsNode && Player.DistanceTo(wp.Position) < 50 && !Service.ObjectTable.Any(x => x.BaseId == wp.InteractWithOID && x.IsTargetable)) {
                 Service.Log.Debug("Current waypoint target is not targetable, moving to next waypoint");
                 if (Service.Navmesh.IsRunning())
                     Service.Navmesh.Stop();
@@ -263,7 +278,7 @@ public class GatherRouteExec : IDisposable {
                 }
                 break;
             case GatherRouteDB.InteractionType.NodeScan:
-                var objs = Service.ObjectTable.Where(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable).OrderBy(x => x.DataId);
+                var objs = Service.ObjectTable.Where(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable).OrderBy(x => x.BaseId);
                 if (objs.Any()) {
                     Service.Log.Debug($"Found {objs.Count()} GatheringPoints");
                     TryAddObjects(wp, objs);
@@ -289,11 +304,22 @@ public class GatherRouteExec : IDisposable {
             return;
         }
 
-        if (RouteDB.RepairGear && RepairAssistantManager.CanRepairAny(RouteDB.RepairPercent) && !AddonUtils.IsOccupied() && !Service.Condition[ConditionFlag.Mounted]) {
-            SetState(State.RepairingGear);
-            Service.Log.Debug("Repair gear task queued.");
-            Service.TaskManager.Enqueue(RepairAssistantManager.ProcessRepair, "RepairGear");
-            return;
+        var needsRepair = RouteDB.RepairGear && RepairAssistantManager.CanRepairAny(RouteDB.RepairPercent);
+        if (!needsRepair) {
+            _repairAttempts = 0; // gear is fine (or the feature is off) — a later repair starts from a clean slate
+        }
+        else if (!AddonUtils.IsOccupied() && !Service.Condition[ConditionFlag.Mounted]) {
+            if (_repairAttempts < MaxRepairAttempts) {
+                ++_repairAttempts;
+                SetState(State.RepairingGear);
+                Service.Log.Debug($"Repair gear task queued (attempt {_repairAttempts}/{MaxRepairAttempts}).");
+                Service.TaskManager.Enqueue(RepairAssistantManager.ProcessRepair, "RepairGear");
+                return;
+            }
+            if (_repairAttempts == MaxRepairAttempts) {
+                ++_repairAttempts; // only complain once
+                Service.Log.Error($"Gear still needs repair after {MaxRepairAttempts} attempts; continuing the route without repairing.");
+            }
         }
 
         if (RouteDB.PurifyCollectables && PurificationManager.CanPurifyAny() && !AddonUtils.IsOccupied() && !Service.Condition[ConditionFlag.Mounted]) {
@@ -327,7 +353,7 @@ public class GatherRouteExec : IDisposable {
 
         if (wp.IsPhantom && wp.IsLast(CurrentRoute)) // phantom nodes should have two interactions: standard and nodescan. Ideally find a better way than just duplicating the function here
         {
-            var objs = Service.ObjectTable.Where(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable).OrderBy(x => x.DataId);
+            var objs = Service.ObjectTable.Where(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable).OrderBy(x => x.BaseId);
             if (objs.Any()) {
                 Service.Log.Debug($"Found {objs.Count()} GatheringPoints");
                 TryAddObjects(wp, objs);
@@ -373,7 +399,7 @@ public class GatherRouteExec : IDisposable {
         if (wp.InteractWithOID == 0)
             return null;
 
-        foreach (var obj in Service.ObjectTable.Where(o => o.DataId == wp.InteractWithOID && (o.Position - wp.Position).LengthSquared() < 1))
+        foreach (var obj in Service.ObjectTable.Where(o => o.BaseId == wp.InteractWithOID && (o.Position - wp.Position).LengthSquared() < 1))
             return obj.IsTargetable ? (GameObject*)obj.Address : null;
         return null;
     }
@@ -386,7 +412,7 @@ public class GatherRouteExec : IDisposable {
             ZoneID = Service.ClientState.TerritoryType,
             Radius = RouteDB.DefaultWaypointRadius,
             InteractWithName = obj.Name.TextValue,
-            InteractWithOID = obj.DataId,
+            InteractWithOID = obj.BaseId,
             InteractWithPosition = obj.Position,
             Interaction = GatherRouteDB.InteractionType.Standard,
             Movement = Player.InclusiveFlying ? GatherRouteDB.Movement.MountFly : GatherRouteDB.Movement.Normal
@@ -404,7 +430,7 @@ public class GatherRouteExec : IDisposable {
             ZoneID = Service.ClientState.TerritoryType,
             Radius = RouteDB.DefaultWaypointRadius,
             InteractWithName = marker.Node?.Name.TextValue ?? "",
-            InteractWithOID = marker.Node?.DataId ?? 0,
+            InteractWithOID = marker.Node?.BaseId ?? 0,
             InteractWithPosition = marker.Node?.Position ?? marker.Position,
             Interaction = GatherRouteDB.InteractionType.Standard,
             Movement = Service.Condition[ConditionFlag.Diving] || marker.DistanceToLast > 30 ? GatherRouteDB.Movement.MountFly : GatherRouteDB.Movement.Normal
@@ -414,16 +440,25 @@ public class GatherRouteExec : IDisposable {
             wp.AddWaypointsAfter(CurrentRoute!, waypoints);
     }
 
-    private unsafe List<(MiniMapGatheringMarker Marker, Vector3 Position, float DistanceToLast, IGameObject? Node)> GetGatheringMarkers()
-        => [.. AgentMap.Instance()->MiniMapGatheringMarkers.ToArray()
+    // 🔴 AgentMap.Instance() 是產生器產出的取得子,本體即「agentModule == null ? null : ...」,
+    //    換區/登入途中 AgentModule 還沒建好時合法回 null。裸解參考 = AccessViolationException,
+    //    corrupted-state exception,try/catch 攔不到,沒有第二道防線。
+    // fail-closed:拿不到地圖 agent 就回空清單。兩個呼叫端對空清單的既有反應都是
+    //    「Player.RevealNode(); return;」—— 那是本來就會走到的路徑,退化行為良性。
+    private unsafe List<(MiniMapGatheringMarker Marker, Vector3 Position, float DistanceToLast, IGameObject? Node)> GetGatheringMarkers() {
+        var agent = AgentMap.Instance();
+        if (agent == null)
+            return [];
+        return [.. agent->MiniMapGatheringMarkers.ToArray()
             .Where(x => x.MapMarker.IconId != 0)
             .Select((marker, index) => {
                 var pos = new Vector3(marker.MapMarker.X / 16, Player.Position.Y, marker.MapMarker.Y / 16);
                 var dist = index > 0 ? Vector3.Distance(Service.ObjectTable.ElementAt(index - 1).Position, pos) : 0;
                 var obj = Service.ObjectTable.FirstOrDefault(o => o?.ObjectKind == ObjectKind.GatheringPoint && o.IsTargetable && o?.Position.X - CurrentRoute!.Waypoints[CurrentWaypoint].InteractWithPosition.X < 5 && o?.Position.Z - CurrentRoute.Waypoints[CurrentWaypoint].InteractWithPosition.Z < 5, null);
-                Service.Log.Debug($"Found {nameof(MiniMapGatheringMarker)} @ {pos} {(obj != null ? $"and matching object [{obj.DataId}] {obj.Name.TextValue} @ {obj.Position}" : string.Empty)}");
+                Service.Log.Debug($"Found {nameof(MiniMapGatheringMarker)} @ {pos} {(obj != null ? $"and matching object [{obj.BaseId}] {obj.Name.TextValue} @ {obj.Position}" : string.Empty)}");
                 return (Marker: marker, Position: obj != null ? obj.Position : pos, DistanceToLast: dist, Node: obj);
             })];
+    }
     #endregion
 
     #region Error Checking

@@ -31,6 +31,16 @@ public class WorkshopSeasonDB {
 
     public int CurrentSeason(bool nextWeek = false) => SeasonForWeek(WorkshopUtils.CurrentWeek().startTime, nextWeek);
 
+    // 在 100 季的循環裡把季號位移 weeks 週(可正可負)。weeks == 0 時原樣回傳。
+    // 用途:SeasonForWeek 是純日期算術、從沒跟遊戲資料對照過,萬一相位差了,
+    // 使用者可以在設定裡填修正量而不必等改版。
+    public int Shift(int season, int weeks) {
+        if (weeks == 0 || CycleLength <= 0)
+            return season;
+        var offset = ((season - RangeStart + weeks) % CycleLength + CycleLength) % CycleLength;
+        return RangeStart + offset;
+    }
+
     public bool TryGet(int season, out SeasonRec rec) => _seasons.TryGetValue(season, out rec!);
 
     public WorkshopSolver.Recs BuildRecs(int season) {

@@ -39,7 +39,17 @@ public static unsafe class GranaryUtils {
                 Service.Log.Info($"=> not enough cowries");
             }
             else {
+                // 🔴 gstate 非 null 只證明「稍早那次 State() 取得到 agent」,這裡是重新取得的一次
+                //    呼叫,而 AgentMJIGatheringHouse.Instance() 合法回 null(產生器本體即
+                //    agentModule == null ? null : ...);下面 agent->Data->Expeditions 又是第二層
+                //    裸讀,Data 只是普通指標欄位,資料未載入時同樣是 null。
+                //    任一層是 null 就是 AccessViolationException —— corrupted-state,try/catch 攔不到。
+                // fail-closed:取不到就不送這次遠征指派。維持現狀比在未知狀態下送指令安全。
                 var agent = AgentMJIGatheringHouse.Instance();
+                if (agent == null || agent->Data == null || agent->GranariesState == null) {
+                    Service.Log.Information($"[Granary] SelectExpedition skipped: agent/data/state unavailable (agent={(nint)agent:X})");
+                    return;
+                }
                 agent->CurGranaryIndex = granaryIndex;
                 agent->CurActiveExpeditionId = gstate->ActiveExpeditionId;
                 agent->CurActiveDays = gstate->RemainingDays;

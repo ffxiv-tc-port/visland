@@ -25,6 +25,8 @@ public class GatherWindow : Window {
     public GatherRouteDB RouteDB = null!;
     public GatherRouteExec Exec => Service.RouteExec;
     public GatherDebug _debug = null!;
+    private readonly visland.Island.MaterialLedgerTab _materials = new();
+    private visland.Island.AutomationTab _automation = null!;
 
     private int selectedRouteIndex = -1;
     private static bool loop;
@@ -43,6 +45,9 @@ public class GatherWindow : Window {
         RouteDB = Service.Config.Get<GatherRouteDB>();
 
         _debug = new(Exec);
+        // 這裡才建:AutomationTab 在建構時就抓四個設定節點,而 Configuration 是在 Service.Init
+        // 裡初始化的 —— 用欄位初始式會在建構函式本體之前跑,順序上比較脆弱。
+        _automation = new();
     }
 
     public override void Draw() {
@@ -66,10 +71,16 @@ public class GatherWindow : Window {
                         a();
                     _postDraw.Clear();
                 }
+            using (var tab = ImRaii.TabItem("Material Ledger".Loc()))
+                if (tab)
+                    _materials.Draw();
+            using (var tab = ImRaii.TabItem("Automation".Loc()))
+                if (tab)
+                    _automation.Draw();
             using (var tab = ImRaii.TabItem("Log".Loc()))
                 if (tab)
                     ImGui.TextUnformatted("Plugin log is available via /xllog or Dalamud log window.".Loc());
-            using (var tab = ImRaii.TabItem("Debug"))
+            using (var tab = ImRaii.TabItem("Debug".Loc()))
                 if (tab)
                     _debug.Draw();
         }
@@ -202,10 +213,8 @@ public class GatherWindow : Window {
                 RouteDB.NotifyModified();
             ImGuiComponents.HelpMarker("Enables \"Gather Mode\" when on your Island Sanctuary automatically when commencing a route.".Loc());
 
-            using (ImRaii.Disabled()) {
-                if (ImGui.Checkbox("Stop Route on Error".Loc(), ref RouteDB.DisableOnErrors))
-                    RouteDB.NotifyModified();
-            }
+            if (ImGui.Checkbox("Stop Route on Error".Loc(), ref RouteDB.DisableOnErrors))
+                RouteDB.NotifyModified();
             ImGuiComponents.HelpMarker("Stops executing a route when you encounter a node you can't gather from due to full inventory.".Loc());
 
             if (ImGui.Checkbox("Teleport between zones".Loc(), ref RouteDB.TeleportBetweenZones))
@@ -317,7 +326,7 @@ public class GatherWindow : Window {
             ImGui.SameLine();
             if (ImGuiComponents.IconButton(FontAwesomeIcon.Plus)) {
                 Exec.Finish();
-                var player = Service.ClientState.LocalPlayer;
+                var player = Service.ObjectTable.LocalPlayer;
                 if (player != null) {
                     route.Waypoints.Add(new() { Position = player.Position, Radius = RouteDB.DefaultWaypointRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType });
                     RouteDB.NotifyModified();
@@ -328,7 +337,7 @@ public class GatherWindow : Window {
             if (ImGuiComponents.IconButton(FontAwesomeIcon.UserPlus)) {
                 var target = Service.TargetManager.Target;
                 if (target != null) {
-                    route.Waypoints.Add(new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.DataId, InteractWithName = target.Name.ToString().ToLower() });
+                    route.Waypoints.Add(new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.BaseId, InteractWithName = target.Name.ToString().ToLower() });
                     RouteDB.NotifyModified();
                     Exec.Start(route, route.Waypoints.Count - 1, false, false);
                 }
@@ -455,7 +464,7 @@ public class GatherWindow : Window {
                     wp.Position = target.Position;
                     wp.Radius = RouteDB.DefaultInteractionRadius;
                     wp.InteractWithName = target.Name.ToString().ToLower();
-                    wp.InteractWithOID = target.DataId;
+                    wp.InteractWithOID = target.BaseId;
                     RouteDB.NotifyModified();
                 }
             }
@@ -531,7 +540,7 @@ public class GatherWindow : Window {
 
         if (ImGui.MenuItem("Swap to ??".Loc((r.Waypoints[i].InteractWithOID != default ? "normal waypoint" : "interact waypoint").Loc()))) {
             _postDraw.Add(() => {
-                r.Waypoints[i].InteractWithOID = r.Waypoints[i].InteractWithOID != default ? default : target?.DataId ?? default;
+                r.Waypoints[i].InteractWithOID = r.Waypoints[i].InteractWithOID != default ? default : target?.BaseId ?? default;
                 RouteDB.NotifyModified();
             });
         }
@@ -541,7 +550,7 @@ public class GatherWindow : Window {
                 if (i > 0 && i < r.Waypoints.Count) {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
-                    if (Service.ClientState.LocalPlayer != null) {
+                    if (Service.ObjectTable.LocalPlayer != null) {
                         r.Waypoints.Insert(i, new() { Position = Player.Position, Radius = RouteDB.DefaultWaypointRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType });
                         RouteDB.NotifyModified();
                     }
@@ -554,7 +563,7 @@ public class GatherWindow : Window {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
                     if (target != null) {
-                        r.Waypoints.Insert(i, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.DataId, InteractWithName = target.Name.ToString().ToLower() });
+                        r.Waypoints.Insert(i, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.BaseId, InteractWithName = target.Name.ToString().ToLower() });
                         RouteDB.NotifyModified();
                     }
                 }
@@ -566,7 +575,7 @@ public class GatherWindow : Window {
                 if (i > 0 && i < r.Waypoints.Count) {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
-                    if (Service.ClientState.LocalPlayer != null) {
+                    if (Service.ObjectTable.LocalPlayer != null) {
                         r.Waypoints.Insert(i + 1, new() { Position = Player.Position, Radius = RouteDB.DefaultWaypointRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType });
                         RouteDB.NotifyModified();
                     }
@@ -579,7 +588,7 @@ public class GatherWindow : Window {
                     if (Exec.CurrentRoute == r)
                         Exec.Finish();
                     if (target != null) {
-                        r.Waypoints.Insert(i + 1, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.DataId, InteractWithName = target.Name.ToString().ToLower() });
+                        r.Waypoints.Insert(i + 1, new() { Position = target.Position, Radius = RouteDB.DefaultInteractionRadius, ZoneID = Service.ClientState.TerritoryType, Movement = movementType, InteractWithOID = target.BaseId, InteractWithName = target.Name.ToString().ToLower() });
                         RouteDB.NotifyModified();
                     }
                 }

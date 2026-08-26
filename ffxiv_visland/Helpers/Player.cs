@@ -16,8 +16,8 @@ namespace visland.Helpers;
 
 public static unsafe class Player {
     [MemberNotNullWhen(true, nameof(Object))]
-    public static bool Available => Service.ClientState.LocalPlayer is { IsDead: false };
-    public static IGameObject? Object => Service.ClientState.LocalPlayer;
+    public static bool Available => Service.ObjectTable.LocalPlayer is { IsDead: false };
+    public static IGameObject? Object => Service.ObjectTable.LocalPlayer;
     public static Vector3 Position => Object?.Position ?? default;
     public static ulong CID => PlayerState.Instance()->ContentId;
     public static uint Job => PlayerState.Instance()->CurrentClassJobId;
@@ -26,7 +26,7 @@ public static unsafe class Player {
     public static bool Mounting => Service.Condition[ConditionFlag.Mounting];
     public static bool IsJumping => Service.Condition[ConditionFlag.Jumping];
     public static bool IsCasting => Service.Condition[ConditionFlag.Casting];
-    public static IEnumerable<Dalamud.Game.ClientState.Statuses.Status> Status => Service.ClientState.LocalPlayer?.StatusList is { } list ? list : [];
+    public static IEnumerable<Dalamud.Game.ClientState.Statuses.Status> Status => Service.ObjectTable.LocalPlayer?.StatusList is { } list ? list : [];
     public static bool Normal => Service.Condition[ConditionFlag.NormalConditions];
     public static bool ExclusiveFlying => Service.Condition[ConditionFlag.InFlight];
     public static bool InclusiveFlying => Service.Condition[ConditionFlag.InFlight] || Service.Condition[ConditionFlag.Diving];
@@ -37,19 +37,33 @@ public static unsafe class Player {
     public static float FoodCD => Status.FirstOrDefault(s => s.StatusId == 48)?.RemainingTime ?? 0;
     public static float AnimationLock => ActionManager.Instance()->AnimationLock;
     public static bool InGatheringAnimation => Service.Condition[ConditionFlag.ExecutingGatheringAction];
-    public static uint Gp => Service.ClientState.LocalPlayer?.CurrentGp ?? 0;
-    public static uint MaxGp => Service.ClientState.LocalPlayer?.MaxGp ?? 0;
+    public static uint Gp => Service.ObjectTable.LocalPlayer?.CurrentGp ?? 0;
+    public static uint MaxGp => Service.ObjectTable.LocalPlayer?.MaxGp ?? 0;
     public static int Gathering => PlayerState.Instance()->Attributes[72];
     public static int Perception => PlayerState.Instance()->Attributes[73];
     public static bool IsOnIsland => MJIManager.Instance() != null && MJIManager.Instance()->IsPlayerInSanctuary;
 
     public static float DistanceTo(Vector3 pos) => Object == null ? float.MaxValue : Vector3.Distance(Object.Position, pos);
 
+    // 🔴 這個 lambda 是交給 _action(Throttle)之後才跑的 —— 由節流器決定落在哪一幀,
+    //    所以「呼叫 EatFood 的當下 agent 還在」保證不了 lambda 真正執行時它還在。
+    //    AgentInventoryContext.Instance() 是產生器產出的取得子,本體即
+    //    「agentModule == null ? null : GetAgentByInternalId(...)」,AgentModule 未建立或
+    //    該 agent 格未建立時合法回 null;裸解參考就是 AccessViolationException,
+    //    corrupted-state exception,try/catch 與任何 SafeWrapper 都攔不到。
+    // fail-closed:取不到就這次不吃。漏吃一次只是少一層加成,下次節流窗口會再試。
+    private static void UseItemSafe(uint itemId) {
+        var agent = AgentInventoryContext.Instance();
+        if (agent == null)
+            return;
+        agent->UseItem(itemId);
+    }
+
     public static void EatFood(int id) {
         if (InventoryManager.Instance()->GetInventoryItemCount((uint)id) > 0)
-            _action.Exec(() => AgentInventoryContext.Instance()->UseItem((uint)id));
+            _action.Exec(() => UseItemSafe((uint)id));
         else if (InventoryManager.Instance()->GetInventoryItemCount((uint)id, true) > 0)
-            _action.Exec(() => AgentInventoryContext.Instance()->UseItem((uint)id + 1_000_000));
+            _action.Exec(() => UseItemSafe((uint)id + 1_000_000));
     }
 
     public static void Mount() => ExecuteActionSafe(ActionType.GeneralAction, 24);
@@ -69,6 +83,19 @@ public static unsafe class Player {
     public static bool SwitchJob(uint classJobId) {
         if (Job == classJobId) return true;
         var gearsets = RaptureGearsetModule.Instance();
+        // 🔴 RaptureGearsetModule.Instance() 不是 [StaticAddress] 產生器產出的，是手寫包裝：
+        //    「var uiModule = UIModule.Instance(); return uiModule == null ? null : uiModule->GetRaptureGearsetModule();」
+        //    （Dalamud lib/FFXIVClientStructs/.../Client/UI/Misc/RaptureGearsetModule.cs:15-18）
+        //    ⇒ 回 null 是合法結果，登入前／登出中拿得到的就是 null。
+        //    原本 gearsets->Entries 是對 null+0x50 取 span 再走訪＝AccessViolationException，
+        //    而 AVE 在 .NET Core 是 corrupted-state exception，try/catch 攔不到。
+        // fail-closed：拿不到裝備組模組就回 false＝「這次不換職業」。呼叫端（自動採集／自動化排程）
+        //    看到 false 會停在原地重試，而不是誤以為已經換好職業繼續往下跑。
+        //    這裡不是每幀熱路徑（只在真的要切職業時走到），所以留一行 Information 讓使用者回報得到。
+        if (gearsets == null) {
+            Service.Log.Information($"SwitchJob({classJobId}): RaptureGearsetModule 尚未就緒，這次不換職業");
+            return false;
+        }
         foreach (ref var gs in gearsets->Entries) {
             if (!gearsets->IsValidGearset(gs.Id)) continue;
             if (gs.ClassJob == classJobId) {

@@ -18,6 +18,7 @@ public class Service {
     [PluginService] public static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] public static ITargetManager TargetManager { get; private set; } = null!;
     [PluginService] public static IClientState ClientState { get; private set; } = null!;
+    [PluginService] public static IPlayerState PlayerState { get; private set; } = null!;
     [PluginService] public static ISigScanner SigScanner { get; private set; } = null!;
     [PluginService] public static IGameInteropProvider Hook { get; private set; } = null!;
     [PluginService] public static ICondition Condition { get; private set; } = null!;
@@ -29,6 +30,7 @@ public class Service {
     [PluginService] public static IFramework Framework { get; private set; } = null!;
     [PluginService] public static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] public static IAetheryteList AetheryteList { get; private set; } = null!;
+    [PluginService] public static IToastGui Toasts { get; private set; } = null!;
 
     public static Configuration Config { get; private set; } = null!;
     public static Retainers Retainers { get; private set; } = null!;
@@ -37,6 +39,9 @@ public class Service {
     public static AutoRetainerIPC AutoRetainer { get; private set; } = null!;
     public static VislandIPC Visland { get; private set; } = null!;
     public static GatherRouteExec RouteExec { get; private set; } = null!;
+    // 缺料總表的資料層。倉庫策略與出口保留量都必須讀同一份「缺口」定義,
+    // 所以共用一個實例 —— 各自 new 一個的話會各自節流,同一瞬間可能給出不同的數字。
+    public static Island.MaterialLedger Materials { get; private set; } = null!;
 
     public static void Init(IDalamudPluginInterface pi) {
         try {
@@ -49,9 +54,13 @@ public class Service {
             Retainers = new Retainers();
             RouteExec = new GatherRouteExec();
             Visland = new VislandIPC();
+            Materials = new Island.MaterialLedger();
         }
         catch (Exception ex) {
+            // Rethrow so Dalamud reports a clean load failure instead of leaving the statics above
+            // half-null and turning every later window/command into a mystery NRE (zombie plugin).
             Log.Error(ex, $"Error initalising {nameof(Service)}");
+            throw;
         }
     }
 

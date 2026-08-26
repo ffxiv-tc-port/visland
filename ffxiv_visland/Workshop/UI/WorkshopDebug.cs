@@ -28,13 +28,19 @@ public unsafe class WorkshopDebug {
             WorkshopUtils.RequestDemandFavours();
 
         ImGui.SameLine();
-        if (ImGui.Button("Void 2nd rest (this week)"))
-            WorkshopUtils.VoidSecondRestThisWeek();
+        if (ImGui.Button("Relax 2nd rest (this week only)"))
+            WorkshopUtils.RelaxSecondRestThisWeek();
 
         var curWeek = WorkshopUtils.CurrentWeek();
         _tree.LeafNode($"Current week: #{curWeek.index}, started at {curWeek.startTime}");
 
-        var ad = AgentMJICraftSchedule.Instance()->Data;
+        // AgentMJICraftSchedule.Instance() 是產生器產出的取得子,AgentModule 還沒好時回 null。
+        // 取不到就讓 ad 維持 null,交給下面既有的 ad == null 分支顯示「取不到」,
+        // 不提早 return——後面的人氣/優待資料與 agent 無關,照樣要畫。
+        var agent = AgentMJICraftSchedule.Instance();
+        AgentMJICraftSchedule.ScheduleData* ad = null;
+        if (agent != null)
+            ad = agent->Data;
         var sheet = MJICraftworksObject.Get(Dalamud.Game.ClientLanguage.English);
         foreach (var na in _tree.Node($"Agent data: {(nint)ad:X}", ad == null)) {
             _tree.LeafNode($"updatestate={ad->UpdateState}, level={ad->IslandLevel}");
@@ -46,7 +52,8 @@ public unsafe class WorkshopDebug {
             _tree.LeafNode($"rest mask={ad->RestCycles:X}, proposed={ad->NewRestCycles:X}, prompt={ad->ConfirmPrompt}");
             _tree.LeafNode($"flags1={ad->Flags1}");
             _tree.LeafNode($"flags2={ad->Flags2}");
-            _tree.LeafNode($"CraftworksRestDays: [{string.Join(", ", WorkshopUtils.GetCurrentRestCycles())}]");
+            var restDays = WorkshopUtils.GetCurrentRestCycles();
+            _tree.LeafNode(restDays.Count == 0 ? "CraftworksRestDays: (unavailable)" : $"CraftworksRestDays: [{string.Join(", ", restDays)}]");
 
             var i = 0;
             foreach (ref var w in ad->WorkshopSchedules)
@@ -102,6 +109,11 @@ public unsafe class WorkshopDebug {
         }
 
         var mji = MJIManager.Instance();
+        // MJIManager 是 isPointer 的靜態位址,登入前/不在無人島時是 null。以下到 Draw() 結束都靠它,取不到就整段跳過。
+        if (mji == null) {
+            _tree.LeafNode("Popularity / Favours: MJIManager unavailable");
+            return;
+        }
         _tree.LeafNode($"Popularity: dirty={mji->DemandDirty}, req={mji->RequestDemandType} obj={mji->RequestDemandCraftId}");
         if (!mji->DemandDirty) {
             DrawPopularity("Curr", mji->CurrentPopularity);
@@ -161,7 +173,9 @@ public unsafe class WorkshopDebug {
 
     private void DrawWorkshopSchedule(ref AgentMJICraftSchedule.WorkshopData w, string tag) {
         foreach (var n in _tree.Node($"{tag}: {w.NumScheduleEntries} entries, {w.NumEfficientCrafts} eff, {w.UsedTimeSlots:X} used", w.NumScheduleEntries == 0)) {
-            for (var j = 0; j < w.NumScheduleEntries; ++j) {
+            // NumScheduleEntries 是遊戲寫入的 byte，EntryData 是 FixedSizeArray6：夾到容量內。
+            var numEntries = Math.Min((int)w.NumScheduleEntries, w.EntryData.Length);
+            for (var j = 0; j < numEntries; ++j) {
                 ref var e = ref w.EntryData[j];
                 _tree.LeafNode($"Item {j}: {e.CraftObjectId} ({MJICraftworksObject.GetRow(e.CraftObjectId)?.Item.Value.Name}), flags={e.Flags} startslot={e.StartingSlot}, dur={e.Duration}, started={e.Started}, efficient={e.Efficient}");
             }
@@ -188,7 +202,12 @@ public unsafe class WorkshopDebug {
     }
 
     private void DrawFavourState(int offset, string tag) {
-        var f = MJIManager.Instance()->FavorState;
+        var mji = MJIManager.Instance();
+        if (mji == null) {
+            _tree.LeafNode($"{tag} favour state: MJIManager unavailable");
+            return;
+        }
+        var f = mji->FavorState;
         foreach (var n in _tree.Node($"{tag} favour state")) {
             for (var i = 0; i < 3; ++i) {
                 var idx = f->CraftObjectIds[i + offset];
@@ -206,7 +225,10 @@ public unsafe class WorkshopDebug {
     }
 
     private void InitFavoursFromGame(int offset, int pop) {
-        var state = MJIManager.Instance()->FavorState;
+        var mji = MJIManager.Instance();
+        if (mji == null)
+            return;
+        var state = mji->FavorState;
         for (var i = 0; i < 3; ++i) {
             _favourState.CraftObjectIds[i] = state->CraftObjectIds[i + offset];
             _favourState.CompletedCounts[i] = state->NumDelivered[i + offset] + state->NumScheduled[i + offset];
