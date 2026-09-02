@@ -46,6 +46,10 @@ public class Service {
     public static void Init(IDalamudPluginInterface pi) {
         try {
             pi.Create<Service>();
+            // 🔴 一拿到服務就先起守衛的時鐘:同一個外掛內部的 Framework.Update 沒有 per-handler
+            //    例外隔離(整條多播委派包在單一 try/catch),排在前面的處理常式擲例外會讓後面所有
+            //    處理常式那個 tick 完全不被呼叫。時鐘停住＝逃生口永不到期,所以它要排在最前面。
+            Helpers.AddonPressGuard.Initialize();
             Config = new();
             Config.Initialize(pi.ConfigFile);
             TaskManager = new TaskManager { AbortOnTimeout = true, TimeLimitMS = 20000 };
@@ -65,6 +69,7 @@ public class Service {
     }
 
     public static void Dispose() {
+        Helpers.AddonPressGuard.ForceTeardown();
         RouteExec.Dispose();
         TaskManager.Dispose();
         Config.Dispose();

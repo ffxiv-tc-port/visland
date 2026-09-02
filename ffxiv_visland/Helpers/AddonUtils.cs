@@ -37,17 +37,28 @@ public static unsafe class AddonUtils {
 }
 
 public static unsafe class AtkCallback {
-    public static void Fire(string addonName, bool checkVisibility, params int[] values) {
-        if (AddonUtils.TryGetAddonByName<AtkUnitBase>(addonName, out var addon)) {
-            Fire(addon, checkVisibility, values);
-        }
-    }
+    /// <summary>
+    /// 對指定名稱的視窗送 callback。
+    /// <para>🔴 一律先問過 <see cref="AddonPressGuard"/>:對「正在關閉中」的視窗送第二發 callback
+    /// 是攔不到的原生存取違規(AVE 在 .NET Core 是 corrupted-state exception,<c>try</c>/<c>catch</c> 無效)。
+    /// 被擋下時回 <c>false</c>,語意與「視窗還沒出現」完全相同 —— 呼叫端下一輪再來,控制流不變。</para>
+    /// </summary>
+    /// <param name="pressKey">按法名稱(＝參數組的代稱)。同一扇窗的不同按法互不阻擋;
+    /// 「回答一次即終結」的窗則由守衛把所有按法併成同一個 key。</param>
+    /// <returns>真的送出去了才回 <c>true</c>。</returns>
+    public static bool Fire(string addonName, bool checkVisibility, string pressKey, params int[] values)
+        => AddonUtils.TryGetAddonByName<AtkUnitBase>(addonName, out var addon)
+           && Fire(addonName, addon, checkVisibility, pressKey, values);
 
-    public static void Fire(AtkUnitBase* addon, bool checkVisibility, params int[] values) {
+    /// <inheritdoc cref="Fire(string, bool, string, int[])"/>
+    public static bool Fire(string addonName, AtkUnitBase* addon, bool checkVisibility, string pressKey, params int[] values) {
         if (addon == null)
-            return;
+            return false;
         if (checkVisibility && !addon->IsVisible)
-            return;
+            return false;
+        // 🔴 位址只交給守衛做等值比較,守衛內部永遠不解參考它。
+        if (!AddonPressGuard.TryBeginPress(addonName, (nint)addon, pressKey))
+            return false;
 
         var atkValues = stackalloc AtkValue[values.Length];
         for (var i = 0; i < values.Length; ++i) {
@@ -56,5 +67,6 @@ public static unsafe class AtkCallback {
         }
 
         addon->FireCallback((uint)values.Length, atkValues);
+        return true;
     }
 }

@@ -3,6 +3,7 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 using Lumina.Excel.Sheets;
 using System;
 using System.Text.RegularExpressions;
+using visland.Helpers;
 
 namespace visland.Gathering.AutoGather;
 
@@ -82,6 +83,13 @@ public static unsafe partial class GatheringAddon {
             // 回 null，一樣不送 callback——失敗形式是「這一幀不做事」，下一幀重試。
             if (CheckBoxEnabled(CheckboxAt(addon, index)) != true)
                 return;
+            // 🔴 採集視窗按一次採一格、窗留著(多次互動窗,逃生口 15 幀),但「最後一格採完後
+            //    遊戲自己收窗」的淡出期間,上面那些文字節點與核取方塊仍讀得到值
+            //    ——「三關全過」擋不住關閉中的窗,此時再送 callback 就是攔不到的原生存取違規。
+            //    守衛記的是「這個位址的這一格按過了」,所以 Framework.Update／IPC／偵錯按鈕
+            //    三條驅動都走同一個閘門(它們全都經過這裡)。
+            if (!AddonPressGuard.TryBeginPress(AddonName, (nint)addon, GatherPressKey(index)))
+                return;
             var values = stackalloc AtkValue[2];
             values[0].Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int;
             values[0].Int = 2;
@@ -89,6 +97,16 @@ public static unsafe partial class GatheringAddon {
             values[1].UInt = (uint)index;
             ((AtkUnitBase*)addon)->FireCallback(1, values);
         }
+
+        /// <summary>
+        /// 每一格的守衛按法名稱。預先建好字串:<c>Gather</c> 在每幀路徑上,不要在那裡臨時組字串。
+        /// 索引超出範圍時退回共用名稱(那次會與別格互擋,偏保守)。
+        /// </summary>
+        private static readonly string[] GatherPressKeys =
+            ["Gather0", "Gather1", "Gather2", "Gather3", "Gather4", "Gather5", "Gather6", "Gather7"];
+
+        private static string GatherPressKey(int index)
+            => (uint)index < (uint)GatherPressKeys.Length ? GatherPressKeys[index] : "Gather";
 
         // addon 為 null 時不解參考（FixedSizeArray 的索引器本身就是 this 上的偏移計算）。
         // 🔴 addon 由呼叫端解析後傳進來，不在這裡重查：同一次操作內必須是同一個 addon。

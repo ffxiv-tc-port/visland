@@ -64,8 +64,11 @@ internal class PurificationManager {
         }
     }
 
+    // 🔴 這是「在 PostSetup 處理常式裡直接按下去」的模組。AddonLifecycle 監聽器彼此之間的
+    //    呼叫順序不可依賴,所以 AddonPressGuard 的 PostSetup 解除軌帶了同幀豁免
+    //    (只清「不是這一幀才登記的」紀錄),否則守衛自己的 PostSetup 會把剛登記的紀錄清掉。
     private static void ResultsSetup(AddonEvent type, AddonArgs args) {
-        AtkCallback.Fire(args.AddonName, false, 0);
+        AtkCallback.Fire(args.AddonName, false, "CloseResult", 0);
     }
 
     public static bool CanPurifyAny() => GetPurifyableItems().Count > 0;

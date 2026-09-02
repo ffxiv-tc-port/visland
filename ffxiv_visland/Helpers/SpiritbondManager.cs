@@ -47,13 +47,19 @@ public static unsafe class SpiritbondManager {
     }
 
     public static unsafe void CloseMateriaMenu() {
-        if (Service.GameGui.GetAddonByName("Materialize", 1) != IntPtr.Zero)
+        var materialize = Service.GameGui.GetAddonByName("Materialize", 1);
+        if (materialize != IntPtr.Zero) {
+            // 🔴 通用動作 14 是 toggle:窗開著時這一下等於「關窗」。登記成「正在關閉」,
+            //    否則「上一輪把窗關掉、這一輪對淡出中的它送 callback」那條路徑上,
+            //    上一次的按下紀錄早就冷掉、擋不住。
+            AddonPressGuard.MarkClosing("Materialize", materialize.Address);
             UseMateriaExtraction();
+        }
     }
 
     public static unsafe void ConfirmMateriaDialog() {
         try {
-            AtkCallback.Fire("MaterializeDialog", true, 0);
+            AtkCallback.Fire("MaterializeDialog", true, "Confirm", 0);
         }
         catch {
         }
@@ -103,6 +109,12 @@ public static unsafe class SpiritbondManager {
 
                     var materalizeWindow = (AtkUnitBase*)materializePTR.Address;
                     if (materalizeWindow == null)
+                        return;
+
+                    // 🔴 精製主視窗按一次抽一顆、窗留著(多次互動窗,逃生口 15 幀),但它也可能
+                    //    正在被 CloseMateriaMenu 的 toggle 關掉。守衛擋下就這一輪不動作,
+                    //    外層每 500ms 會再進來一次 —— 控制流與「視窗不在」完全相同。
+                    if (!AddonPressGuard.TryBeginPress("Materialize", (nint)materalizeWindow, "ExtractFirst"))
                         return;
 
                     var values = stackalloc AtkValue[2];
