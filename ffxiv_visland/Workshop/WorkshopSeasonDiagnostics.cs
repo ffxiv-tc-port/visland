@@ -17,7 +17,7 @@ namespace visland.Workshop;
 // 也就是說「用受歡迎度反推季號」這條路本身不成立,不是查詢寫壞了。
 //
 // 所以改成:把「算出來的季號」與「遊戲實際的受歡迎度列號」同時擺出來,
-// 讓實機一次觀測就能定錨。使用者跑 LogLevel 2 → 一律寫 Information。
+// 讓實機一次觀測就能定錨。使用者跑 LogLevel 1 → 一律寫 Information。
 public static unsafe class WorkshopSeasonDiagnostics {
     public struct Snapshot {
         public int ThisSeason;
@@ -77,7 +77,7 @@ public static unsafe class WorkshopSeasonDiagnostics {
         return snap;
     }
 
-    // 🔴 使用者跑 LogLevel 2,Debug/Verbose 收不到 → 這行必須是 Information。
+    // 🔴 使用者跑 LogLevel 1,盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒 → 這行必須是 Information。
     // 同一組數字只印一次,避免每次開窗都洗版(數字一變就會再印)。
     public static void Log(Snapshot s, WorkshopSeasonDB db) {
         var line =

@@ -113,7 +113,7 @@ public sealed class FavourPlacementReport {
     public string ProgressText() => string.Join(" | ", Progress.Select(p =>
         $"C{p.cycle} " + string.Join(" ", p.cumulative.Select((v, i) => $"{v}/{Targets[i]}"))));
 
-    // 🔴 使用者跑 LogLevel 2,診斷一律 Information。
+    // 🔴 使用者跑 LogLevel 1,診斷一律 Information。
     public string LogLine(FavourMode mode) {
         if (!Valid)
             return $"[favour-placement] not computed: {SkipReason}";

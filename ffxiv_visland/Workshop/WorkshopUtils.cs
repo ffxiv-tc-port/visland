@@ -33,7 +33,7 @@ public static unsafe class WorkshopUtils {
     //    UIModule 未建立時回 null)。下面這批 public static 方法原本全靠呼叫端
     //    WorkshopWindow.PreOpenCheck 那棵樹擋著 —— 那是**別處建立的前提**,擋不住未來新增的
     //    呼叫點,而且 Utils.SynthesizeEvent 會對 receiver 做虛擬呼叫,null 進去就是攔不到的 AVE。
-    //    一律改成本地判空,失敗形式=不動作並留一行 Information(使用者跑 LogLevel 2 看得到)。
+    //    一律改成本地判空,失敗形式=不動作並留一行 Information(使用者跑 LogLevel 1 看得到)。
     public static void ClearCurrentCycleSchedule() {
         var agent = AgentMJICraftSchedule.Instance();
         if (agent == null || agent->Data == null) {

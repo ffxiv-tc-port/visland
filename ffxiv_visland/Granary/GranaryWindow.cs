@@ -209,7 +209,7 @@ unsafe class GranaryWindow : UIAttachedWindow {
         return sb.ToString().TrimEnd('\n');
     }
 
-    // 讓實機回報「它為什麼派這裡」有得對照 —— 使用者跑 LogLevel 2,所以寫 Information。
+    // 讓實機回報「它為什麼派這裡」有得對照 —— 使用者跑 LogLevel 1,所以寫 Information。
     private string DescribeScarcest() {
         List<(uint PouchId, int Rank)> ordered = [];
         foreach (var kv in _scarcityRanks)
