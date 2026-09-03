@@ -185,6 +185,8 @@ internal static unsafe class AddonPressGuard {
         }
 
         presses[pressKey] = new PressRecord(address, frame, escapeFrames);
+        // 跨外掛重按診斷：只在真的送出按壓時記一行，刻意不節流。
+        Service.Log.Information($"[按窗診斷] plugin=visland addon={addonName} addr=0x{address:X} key={pressKey}");
         return true;
     }
 
