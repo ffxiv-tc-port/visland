@@ -17,7 +17,10 @@ namespace visland;
 
 public sealed class Plugin : IDalamudPlugin {
     public static string Name => "visland";
-    public static string Repo => "https://puni.sh/api/repository/veyn";
+    // 這裡絕對不能指國際服的外掛庫：那裡的 vnavmesh 內部名與台服版完全相同，
+    // 加進去會把 API15 的版本裝進台服環境並撞同一個已安裝鍵。一律指本艦隊的 feed
+    //（visland 與 vnavmesh 在本艦隊的 feed 裡也確實是同一個庫，訊息文字照舊成立）。
+    public static string Repo => "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/repo.json";
     // Only the text after each arrow is translated; everything to the left of it is
     // literal command syntax the player has to type, so it must stay as-is.
     internal static string HelpMessage => "Opens the Gathering Menu".Loc() + "\n" +
