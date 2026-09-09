@@ -375,8 +375,15 @@ public class GatherRouteExec : IDisposable {
                 CurrentRoute.Waypoints.RemoveAll(x => x.IsPhantom);
                 CurrentWaypoint = 0;
             }
-            else
+            else {
+                // 🔴 這是整個檔案裡唯一「路線真的跑完了」的地方（走到最後一個點而且沒開循環）。
+                //    其餘六個 Finish() 呼叫點都不是：Dispose()＝卸載、StartRoute＝換路線、
+                //    !ContinueToNext＝單點模式、兩個 CheckToDisable＝錯誤中止（那兩個走「需要幫忙」）。
+                //    名字要在 Finish() 之前抄下來 —— Finish() 會把 CurrentRoute 設成 null。
+                var routeName = CurrentRoute.Name;
                 Finish();
+                IPC.TataruPraiseIPC.TryPraiseRouteDone($"路線「{routeName}」跑完");
+            }
         }
     }
 
@@ -468,7 +475,7 @@ public class GatherRouteExec : IDisposable {
         RecordError();
         if (TooManyRecentErrors()) {
             Service.Log.Debug("Toast error threshold reached. Stopping route.");
-            Finish();
+            StopOnErrors("錯誤提示過多");
         }
     }
 
@@ -482,8 +489,27 @@ public class GatherRouteExec : IDisposable {
             RecordError();
         if (TooManyRecentErrors()) {
             Service.Log.Debug("Chat error threshold reached. Stopping route.");
-            Finish();
+            StopOnErrors("聊天錯誤訊息過多");
         }
+    }
+
+    /// <summary>
+    /// 因為連續錯誤而中止路線，並（若使用者開著）請塔塔露念一句「需要幫忙」。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>要先判 <see cref="CurrentRoute"/> 不是 null 才算「這一次真的停掉了一條路線」。</b>
+    /// <see cref="_recentErrors"/> 只在 <see cref="Update"/> 走到下一個點時才清空，
+    /// 而路線一停 <see cref="Update"/> 就早退 ⇒ 門檻會維持成立達 30 秒。
+    /// 那段期間再來的每一則錯誤訊息都會再走一次這裡（<see cref="Finish"/> 本身是 no-op），
+    /// 沒有這道判斷的話會變成<b>連續念好幾次</b>。
+    /// </remarks>
+    /// <param name="reason">寫進記錄用的來源描述。</param>
+    private void StopOnErrors(string reason) {
+        var stopped = CurrentRoute != null;
+        var routeName = CurrentRoute?.Name ?? string.Empty;
+        Finish();
+        if (stopped)
+            IPC.TataruPraiseIPC.TryPraiseErrorStop($"路線「{routeName}」因{reason}被停下");
     }
 
     private void RecordError() {

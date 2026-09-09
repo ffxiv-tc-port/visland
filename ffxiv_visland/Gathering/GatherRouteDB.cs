@@ -87,6 +87,25 @@ public class GatherRouteDB : Configuration.Node {
     public bool TeleportBetweenZones = true;
     public bool AutoGather;
 
+    /// <summary>
+    /// 路線<b>整條跑完</b>時，請「塔塔露誇獎」(TataruPraise) 念一句。
+    /// </summary>
+    /// <remarks>
+    /// 📌 預設開著，與艦隊裡其他接了 TataruPraise 的外掛一致。
+    /// 🔴 <b>開著也不會憑空多出聲音</b>：沒安裝 TataruPraise 時整條路徑是安靜的 no-op；
+    /// 裝了的人也要等「路線跑完」這個情境真的合成過語音才會響（那是 TataruPraise 那側的閘門）。
+    /// </remarks>
+    public bool TataruPraiseOnRouteDone = true;
+
+    /// <summary>
+    /// 路線因為<b>連續錯誤被自動停掉</b>時（＝<see cref="DisableOnErrors"/> 生效那一刻），
+    /// 請「塔塔露誇獎」念一句（走「需要幫忙」情境，不是「路線跑完」）。
+    /// </summary>
+    /// <remarks>
+    /// 📌 <see cref="DisableOnErrors"/> 關著的話這件事根本不會發生，這個開關也就不會被走到。
+    /// </remarks>
+    public bool TataruPraiseOnErrorStop = true;
+
     public override void Deserialize(JObject j, JsonSerializer ser) {
         Routes.Clear();
         if (j["Routes"] is JArray ja) {
@@ -116,6 +135,10 @@ public class GatherRouteDB : Configuration.Node {
         RepairPercent = (float?)j["RepairPercent"] ?? 20;
         PurifyCollectables = (bool?)j["Desynth"] ?? false;
         GlobalFood = (int?)j["GlobalFood"] ?? 0;
+        // 🔴 缺鍵的預設值＝true，與欄位初始值一致。既有使用者的設定檔沒有這兩個鍵，
+        //    寫成 ?? false 的話「新裝的人有聲音、既有使用者永遠沒有」而且完全沒有徵兆。
+        TataruPraiseOnRouteDone = (bool?)j["TataruPraiseOnRouteDone"] ?? true;
+        TataruPraiseOnErrorStop = (bool?)j["TataruPraiseOnErrorStop"] ?? true;
         // Intentionally ignore obsolete keys: Manual, GlobalManual, WasFlyingInManual,
         // LandDistance, PathFindCancellationTime, EmoteID, ActionID, ItemID, MobID, QuestID, ChatCommand, etc.
     }
@@ -145,6 +168,8 @@ public class GatherRouteDB : Configuration.Node {
             { "GlobalFood", GlobalFood },
             { "AutoRetainerIntegration", AutoRetainerIntegration },
             { "AutoGather", AutoGather },
+            { "TataruPraiseOnRouteDone", TataruPraiseOnRouteDone },
+            { "TataruPraiseOnErrorStop", TataruPraiseOnErrorStop },
         };
     }
 

@@ -220,6 +220,14 @@ public class GatherWindow : Window {
             if (ImGui.Checkbox("Teleport between zones".Loc(), ref RouteDB.TeleportBetweenZones))
                 RouteDB.NotifyModified();
 
+            if (ImGui.Checkbox("Have Tataru speak when a route finishes".Loc(), ref RouteDB.TataruPraiseOnRouteDone))
+                RouteDB.NotifyModified();
+            ImGuiComponents.HelpMarker("Requires the TataruPraise plugin. Only fires when the route reaches its last waypoint without looping; stopping it yourself stays silent.".Loc());
+
+            if (ImGui.Checkbox("Have Tataru speak when a route is stopped by errors".Loc(), ref RouteDB.TataruPraiseOnErrorStop))
+                RouteDB.NotifyModified();
+            ImGuiComponents.HelpMarker("Requires the TataruPraise plugin, and only happens while \"Stop Route on Error\" is on. Uses its \"need help\" line rather than the \"route finished\" one.".Loc());
+
             Utils.WorkInProgressIcon();
             ImGui.SameLine();
             if (ImGui.Checkbox("Auto Gather".Loc(), ref RouteDB.AutoGather))
