@@ -482,18 +482,10 @@ public class GatherRouteExec : IDisposable {
 
     private static readonly uint[] logErrors = [3570, 3574, 3575, 3584, 3589]; // various unable to spearfish errors
 
-    /// <summary>
-    /// <see cref="logErrors"/> 那幾列拆好的比對形狀，第一次收到錯誤訊息時建起來。
-    /// </summary>
-    /// <remarks>
-    /// 🔴 <b>那五列裡有三列（3574／3575／3584）的開頭是 MacroCode.String（0x29）</b>——
-    /// 執行期才帶入角色名。兩端用的 Lumina <c>ExtractText()</c> 把巨集塌成空字串，
-    /// 所以「模板的文字」永遠不會等於「實際收到的那一則訊息」（後者開頭多了角色名）
-    /// ⇒ 舊的 <c>==</c> 比對對這三種情況<b>恆為 false</b>，
-    /// 「偵測到錯誤訊息就停下路線」從來沒有為它們觸發過，而且完全不報錯。
-    /// 改成比對模板拆出來的靜態片段；另外兩列（3570／3589）沒有巨集，
-    /// <see cref="SeStringTemplate.Shape.Matches"/> 對它們仍然走完全相等，行為逐字不變。
-    /// </remarks>
+    /// <summary><see cref="logErrors"/> 那幾列拆好的比對形狀，第一次收到錯誤訊息時建起來。</summary>
+    /// <remarks>🔴 <b>那五列裡有三列（3574／3575／3584）的開頭是 MacroCode.String（0x29）</b>——執行期才帶入角色名。兩端用的 Lumina <c>ExtractText()</c> 把巨集塌成空字串，所以「模板的文字」永遠不會等於「實際收到的那一則訊息」（後者開頭多了角色名）
+    /// ⇒ 舊的 <c>==</c> 比對對這三種情況<b>恆為 false</b>，「偵測到錯誤訊息就停下路線」從來沒有為它們觸發過，而且完全不報錯。
+    /// 改成比對模板拆出來的靜態片段；另外兩列（3570／3589）沒有巨集，<see cref="SeStringTemplate.Shape.Matches"/> 對它們仍然走完全相等，行為逐字不變。</remarks>
     private List<SeStringTemplate.Shape>? _logErrorShapes;
 
     private List<SeStringTemplate.Shape> LogErrorShapes() {
@@ -538,16 +530,9 @@ public class GatherRouteExec : IDisposable {
         }
     }
 
-    /// <summary>
-    /// 因為連續錯誤而中止路線，並（若使用者開著）請塔塔露念一句「需要幫忙」。
-    /// </summary>
-    /// <remarks>
-    /// 🔴 <b>要先判 <see cref="CurrentRoute"/> 不是 null 才算「這一次真的停掉了一條路線」。</b>
-    /// <see cref="_recentErrors"/> 只在 <see cref="Update"/> 走到下一個點時才清空，
-    /// 而路線一停 <see cref="Update"/> 就早退 ⇒ 門檻會維持成立達 30 秒。
-    /// 那段期間再來的每一則錯誤訊息都會再走一次這裡（<see cref="Finish"/> 本身是 no-op），
-    /// 沒有這道判斷的話會變成<b>連續念好幾次</b>。
-    /// </remarks>
+    /// <summary>因為連續錯誤而中止路線，並（若使用者開著）請塔塔露念一句「需要幫忙」。</summary>
+    /// <remarks>🔴 <b>要先判 <see cref="CurrentRoute"/> 不是 null 才算「這一次真的停掉了一條路線」。</b><see cref="_recentErrors"/> 只在 <see cref="Update"/> 走到下一個點時才清空，而路線一停 <see cref="Update"/> 就早退 ⇒ 門檻會維持成立達 30 秒。
+    /// 那段期間再來的每一則錯誤訊息都會再走一次這裡（<see cref="Finish"/> 本身是 no-op），沒有這道判斷的話會變成<b>連續念好幾次</b>。</remarks>
     /// <param name="reason">寫進記錄用的來源描述。</param>
     private void StopOnErrors(string reason) {
         var stopped = CurrentRoute != null;

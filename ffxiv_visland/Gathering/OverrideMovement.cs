@@ -161,15 +161,9 @@ public unsafe class OverrideMovement : IDisposable {
         return (dirH - refDir, dirV);
     }
 
-    // CameraManager.GetActiveCamera() is a ClientStructs [MemberFunction], and CameraManager.Instance()
-    // just forwards to Control.Instance(), a [StaticAddress]. When either signature stops resolving
-    // they *throw* InvalidOperationException (InteropGenerator's ThrowHelper.ThrowNullAddress) instead
-    // of returning null - so a null check on Instance() was never a guard against a broken signature.
-    // This path is reached from the RMIWalk/RMIFly detours, i.e. it would be a managed exception
-    // thrown inside a detour on every single frame. Check the resolved addresses up front and skip the
-    // whole camera-reference path instead; legacy mode then falls back to the character's own facing
-    // (steering is wrong-ish rather than fatal). The GetActiveCamera() result is null-checked too - it
-    // was dereferenced unguarded before.
+    // CameraManager.GetActiveCamera() is a ClientStructs [MemberFunction], and CameraManager.Instance() just forwards to Control.Instance(), a [StaticAddress]. When either signature stops resolving they *throw* InvalidOperationException (InteropGenerator's ThrowHelper.ThrowNullAddress) instead of returning null - so a null check on Instance() was never a guard against a broken signature.
+    // This path is reached from the RMIWalk/RMIFly detours, i.e. it would be a managed exception thrown inside a detour on every single frame. Check the resolved addresses up front and skip the
+    // whole camera-reference path instead; legacy mode then falls back to the character's own facing (steering is wrong-ish rather than fatal). The GetActiveCamera() result is null-checked too - it was dereferenced unguarded before.
     private static bool CameraApiResolved
         => FFXIVClientStructs.FFXIV.Client.Game.Control.Control.Addresses.Instance.Value != 0
         && CameraManager.Addresses.GetActiveCamera.Value != 0;

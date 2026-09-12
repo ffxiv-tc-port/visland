@@ -11,20 +11,11 @@ public static unsafe partial class GatheringAddon {
     public sealed class Gathering {
         private const string AddonName = "Gathering";
 
-        /// <summary>
-        /// 當下這一刻的 addon 指標，查不到回 <c>null</c>。
-        /// <para>🔴 <b>刻意不快取、不跨幀保存。</b> 原本的寫法是在 <c>PostSetup</c> 把
-        /// <c>args.Addon</c> 存進 <c>readonly</c> 欄位、靠 <c>PreFinalize</c> 清成 null。
-        /// 那條生命週期只要沒走到（addon 開著時外掛 reload、事件沒送達……），
-        /// 欄位裡就是**懸空指標**——而懸空**不等於 null**，所有既有的判空一個都擋不住，
-        /// 解參考下去就是存取違規，且 AVE 是 .NET Core 的 corrupted-state exception，
-        /// 外圈 <c>try/catch</c> 完全攔不到。</para>
-        /// <para>📌 重查的代價：一次原生 <c>GetAddonByName</c>（unit list 名稱比對），
-        /// 字串參數走 <c>stackalloc</c> 不配置堆積，對每幀路徑而言可以忽略。
-        /// 🔴 但呼叫端一律「<b>取一次存成區域變數</b>」再用，不要在同一條 <c>-&gt;</c> 鏈裡重查——
-        /// 那既多花錢又會製造 TOCTOU。</para>
-        /// <para>🔴 查不到是常態（addon 沒開），**不記錄**——這是每幀路徑。</para>
-        /// </summary>
+        /// <summary>當下這一刻的 addon 指標，查不到回 <c>null</c>。
+        /// <para>🔴 <b>刻意不快取、不跨幀保存。</b> 原本的寫法是在 <c>PostSetup</c> 把<c>args.Addon</c> 存進 <c>readonly</c> 欄位、靠 <c>PreFinalize</c> 清成 null。那條生命週期只要沒走到（addon 開著時外掛 reload、事件沒送達……），欄位裡就是**懸空指標**——而懸空**不等於 null**，所有既有的判空一個都擋不住，解參考下去就是存取違規，且 AVE 是 .NET Core 的 corrupted-state exception，外圈 <c>try/catch</c> 完全攔不到。</para>
+        /// <para>📌 重查的代價：一次原生 <c>GetAddonByName</c>（unit list 名稱比對），字串參數走 <c>stackalloc</c> 不配置堆積，對每幀路徑而言可以忽略。
+        /// 🔴 但呼叫端一律「<b>取一次存成區域變數</b>」再用，不要在同一條 <c>-&gt;</c> 鏈裡重查——那既多花錢又會製造 TOCTOU。</para>
+        /// <para>🔴 查不到是常態（addon 沒開），**不記錄**——這是每幀路徑。</para></summary>
         private static AddonGathering* Addon => (AddonGathering*)Service.GameGui.GetAddonByName(AddonName).Address;
 
         /// <summary>
@@ -122,15 +113,10 @@ public static unsafe partial class GatheringAddon {
             _ => throw new ArgumentOutOfRangeException(nameof(index)),
         };
 
-        /// <summary>
-        /// 安全地讀取採集項目核取方塊的「可否勾選」狀態。
-        /// <para><c>null</c> ＝ <b>現在讀不到</b>（元件指標或 OwnerNode 還沒建好），
-        /// <b>不代表</b>「已確認為停用」——判斷式要顯式區分這兩者。</para>
-        /// <para>🔴 CS 的 <c>AtkComponentButton.IsEnabled</c> 是
-        /// <c>AtkComponentBase.OwnerNode-&gt;AtkResNode.NodeFlags.HasFlag(...)</c>：
-        /// 它解的是 <c>+0xA8</c> 的 <c>OwnerNode</c>（不是 <c>+0xA0</c> 的 <c>AtkResNode</c>），
-        /// 而且對它零 null 檢查。AVE 是 .NET Core 的 corrupted-state exception，
-        /// <c>try/catch</c> 完全攔不到，只能在讀取前擋下來。</para>
+        /// <summary>安全地讀取採集項目核取方塊的「可否勾選」狀態。
+        /// <para><c>null</c> ＝ <b>現在讀不到</b>（元件指標或 OwnerNode 還沒建好），<b>不代表</b>「已確認為停用」——判斷式要顯式區分這兩者。</para>
+        /// <para>🔴 CS 的 <c>AtkComponentButton.IsEnabled</c> 是<c>AtkComponentBase.OwnerNode-&gt;AtkResNode.NodeFlags.HasFlag(...)</c>：它解的是 <c>+0xA8</c> 的 <c>OwnerNode</c>（不是 <c>+0xA0</c> 的 <c>AtkResNode</c>），
+        /// 而且對它零 null 檢查。AVE 是 .NET Core 的 corrupted-state exception，<c>try/catch</c> 完全攔不到，只能在讀取前擋下來。</para>
         /// </summary>
         internal static bool? CheckBoxEnabled(AtkComponentCheckBox* checkbox) {
             if (checkbox == null) return null;
@@ -191,15 +177,9 @@ public static unsafe partial class GatheringAddon {
 
         private static AtkUnitBase* Unit => (AtkUnitBase*)Addon;
 
-        /// <summary>
-        /// 取第 <paramref name="index"/> 個 <c>AtkValue</c>，取不到回 <c>null</c>。
-        /// <para>🔴 <c>AtkUnitBase.AtkValues</c> 是**原生指標陣列，C# 的 <c>Length</c> 幫不上忙**——
-        /// 只判空是半套：索引 62／63 在 addon 剛 setup、值還沒填滿時是**讀陣列後方的堆積垃圾**，
-        /// 讀到的不是 null 而是隨機數字，會被下游當成真的完整度／收藏價值拿去比大小並放技能。
-        /// 上界的權威來源是同結構 <c>+0x1E2</c> 的 <c>AtkValuesCount</c>。</para>
-        /// <para>📌 **刻意不驗 <c>Type</c>**：型別不符只會讀到同一個 union 內的別的欄位（不會越界、
-        /// 不會 AVE），而台服實際塞什麼 <c>ValueType</c> 無法離線確認——加嚴會靜默停掉本來正常的採集。
-        /// 這次只補「不越界」，不動數值語意。</para>
+        /// <summary>取第 <paramref name="index"/> 個 <c>AtkValue</c>，取不到回 <c>null</c>。
+        /// <para>🔴 <c>AtkUnitBase.AtkValues</c> 是**原生指標陣列，C# 的 <c>Length</c> 幫不上忙**——只判空是半套：索引 62／63 在 addon 剛 setup、值還沒填滿時是**讀陣列後方的堆積垃圾**，讀到的不是 null 而是隨機數字，會被下游當成真的完整度／收藏價值拿去比大小並放技能。上界的權威來源是同結構 <c>+0x1E2</c> 的 <c>AtkValuesCount</c>。</para>
+        /// <para>📌 **刻意不驗 <c>Type</c>**：型別不符只會讀到同一個 union 內的別的欄位（不會越界、不會 AVE），而台服實際塞什麼 <c>ValueType</c> 無法離線確認——加嚴會靜默停掉本來正常的採集。這次只補「不越界」，不動數值語意。</para>
         /// </summary>
         private static AtkValue* ValueAt(int index) {
             var unit = Unit; // 取一次，下面整段都用這個當幀值

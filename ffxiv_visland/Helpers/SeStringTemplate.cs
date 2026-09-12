@@ -6,21 +6,9 @@ using System.Text;
 
 namespace visland.Helpers;
 
-/// <summary>
-/// 把「含執行期巨集的 SeString 模板」拆成靜態片段，用來比對一則<b>已經帶入實際內容</b>的訊息。
-/// </summary>
-/// <remarks>
-/// 存在的理由：資料表裡的訊息模板常常含執行期才決定的內容（<see cref="MacroCode.String"/> 帶入角色名、
-/// <see cref="MacroCode.Num"/> 帶入數字…）。<see cref="ReadOnlySeString.ExtractText()"/>
-/// 對這些巨集吐<b>空字串</b>，所以「模板 <c>ExtractText()</c> 的結果」永遠不會等於
-/// 「實際收到的那一則訊息」—— 用 <c>==</c> 去比是<b>恆為 false</b>，而且不報錯。
-/// <para>
-/// 🔴 片段一律用<b>與比對對象同一套剝法</b>（Lumina <c>ExtractText()</c>）產生：
-/// 連字符 payload（<see cref="MacroCode.Hyphen"/>）吐 U+002D、
-/// 不斷行空格（<see cref="MacroCode.NonBreakingSpace"/>）吐 U+00A0、換行吐
-/// <see cref="Environment.NewLine"/>。用 Dalamud <c>SeString.TextValue</c>（連字符吐 U+2013）
-/// 或 ECommons <c>GetText()</c>（連字符整個丟掉）產生片段，含連字符的模板會再一次恆不相等。
-/// </para>
+/// <summary>把「含執行期巨集的 SeString 模板」拆成靜態片段，用來比對一則<b>已經帶入實際內容</b>的訊息。</summary>
+/// <remarks>存在的理由：資料表裡的訊息模板常常含執行期才決定的內容（<see cref="MacroCode.String"/> 帶入角色名、<see cref="MacroCode.Num"/> 帶入數字…）。<see cref="ReadOnlySeString.ExtractText()"/>對這些巨集吐<b>空字串</b>，所以「模板 <c>ExtractText()</c> 的結果」永遠不會等於「實際收到的那一則訊息」—— 用 <c>==</c> 去比是<b>恆為 false</b>，而且不報錯。
+/// 🔴 片段一律用<b>與比對對象同一套剝法</b>（Lumina <c>ExtractText()</c>）產生：連字符 payload（<see cref="MacroCode.Hyphen"/>）吐 U+002D、不斷行空格（<see cref="MacroCode.NonBreakingSpace"/>）吐 U+00A0、換行吐<see cref="Environment.NewLine"/>。用 Dalamud <c>SeString.TextValue</c>（連字符吐 U+2013）或 ECommons <c>GetText()</c>（連字符整個丟掉）產生片段，含連字符的模板會再一次恆不相等。
 /// </remarks>
 public static class SeStringTemplate {
     /// <summary>
