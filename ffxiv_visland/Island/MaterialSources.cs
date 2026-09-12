@@ -6,18 +6,10 @@ using visland.Helpers;
 namespace visland.Island;
 
 // 無人島材料的「來源」查表。**純 Excel 資料層,不讀任何遊戲記憶體**,所以可以在建構時做一次就快取。
-//
-// 🔴 MJIItemPouch 第 0 列是真材料(無人島棕櫚葉)不是「無」。
-//    任何 `pouchId == 0 -> continue` 都會靜默漏掉棕櫚葉 —— 有效性一律用「數量 > 0」判斷。
-// 🔴 MJIRecipe.Material[] 指向的是 **MJIRecipeMaterial** 不是 MJIItemPouch(多一層轉接);
-//    直接當成 MJIItemPouch 讀會得到一份看起來合理但完全錯誤的配方表。
-//    (校驗:MJIRecipe 0 = 開拓用石斧,經轉接後得到棕櫚葉x3 + 小樹枝x2 + 石材x2,與遊戲一致。)
-// 🔴 MJIRecipe 有 19 列 ItemPouch = 0,那是**工具配方**(產物在 KeyItem 欄),
-//    照 ItemPouch 讀會把它們全部算成「產出棕櫚葉」。
-// ⚠️ MJIStockyardManagementArea.Area 的社群 schema 標的是 MJIText,但 MJIText 1~6 是
-//    「空手/小島木屋 I~III/開拓工坊 I~II」,對不上;實際內容在 **MJIName** 1~6
-//    (草原/溪流/森林/沙灘/山/洞窟),且與各遠征地的材料清單完全吻合(洞窟那列剛好是石炭/
-//    堆積岩/燈火茸/氣泡水/幻影石/黃銅礦/金礦/鷹眼砂/水晶層)。所以這裡用 RowId 去查 MJIName。
+// 🔴 MJIItemPouch 第 0 列是真材料(無人島棕櫚葉)不是「無」。任何 `pouchId == 0 -> continue` 都會靜默漏掉棕櫚葉 —— 有效性一律用「數量 > 0」判斷。
+// 🔴 MJIRecipe.Material[] 指向的是 **MJIRecipeMaterial** 不是 MJIItemPouch(多一層轉接);直接當成 MJIItemPouch 讀會得到一份看起來合理但完全錯誤的配方表。
+// 🔴 MJIRecipe 有 19 列 ItemPouch = 0,那是**工具配方**(產物在 KeyItem 欄),照 ItemPouch 讀會把它們全部算成「產出棕櫚葉」。
+// ⚠️ MJIStockyardManagementArea.Area 的社群 schema 標的是 MJIText,但 MJIText 1~6 是「空手/小島木屋 I~III/開拓工坊 I~II」,對不上;實際內容在 **MJIName** 1~6(草原/溪流/森林/沙灘/山/洞窟),且與各遠征地的材料清單完全吻合(洞窟那列剛好是石炭/堆積岩/燈火茸/氣泡水/幻影石/黃銅礦/金礦/鷹眼砂/水晶層)。所以這裡用 RowId 去查 MJIName。
 public sealed class MaterialGatherInfo {
     public uint GatheringItemRow;
     public float X;

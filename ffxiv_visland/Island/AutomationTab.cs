@@ -11,17 +11,9 @@ using visland.Pasture;
 namespace visland.Island;
 
 // 把倉庫/耕地/牧場/產品交易四塊的**設定**鏡射到 /visland 主視窗。
-//
-// 為什麼要這一頁:那四個視窗都是 UIAttachedWindow,只有站到對應 NPC/建築旁邊、
-// 讓原生介面開起來,它們才會出現 —— 想改個「自動採集」得先跑到島上那個角落。
-//
-// 🔴 這裡**只鏡射設定,不鏡射即時資料,也不鏡射動作**。
-//    「立即套用」「賣掉超過門檻的」這類按鈕要 agent 活著才有意義,
-//    倉庫剩幾天、耕地有什麼可收更是要 agent 資料;主窗拿不到就明講拿不到,
-//    絕不畫一份看起來像真的假數字(三態原則:不知道要看得見)。
-//
-// 設定物件本身是 Configuration.Get<T>() 的同一份實例(每個型別只有一個),
-// 所以這裡改完,建築旁那些視窗立刻是同一個值,不需要任何同步。
+// 為什麼要這一頁:那四個視窗都是 UIAttachedWindow,只有站到對應 NPC/建築旁邊、讓原生介面開起來,它們才會出現 —— 想改個「自動採集」得先跑到島上那個角落。
+// 🔴 這裡**只鏡射設定,不鏡射即時資料,也不鏡射動作**。絕不畫一份看起來像真的假數字(三態原則:不知道要看得見)。
+// 設定物件本身是 Configuration.Get<T>() 的同一份實例(每個型別只有一個),所以這裡改完,建築旁那些視窗立刻是同一個值,不需要任何同步。
 public sealed class AutomationTab {
     private readonly GranaryConfig _granary = Service.Config.Get<GranaryConfig>();
     private readonly FarmConfig _farm = Service.Config.Get<FarmConfig>();

@@ -55,15 +55,8 @@ public static unsafe class GranaryUtils {
                 agent->CurActiveDays = gstate->RemainingDays;
                 agent->CurHoveredExpeditionId = agent->CurSelectedExpeditionId = expeditionId;
                 agent->CurSelectedDays = numDays;
-                // 🔴 Utf8String.ToString() 是 Encoding.UTF8.GetString(AsSpan())，raw 解碼、
-                //    不剝 SeString payload。遠征名稱是遊戲自己組的文字，帶圖示或連結
-                //    payload 時那些控制位元組會被解成 U+FFFD，再編碼回 UTF-8 就不是
-                //    原來的位元組了。而這個值是寫回代理人的 CurExpeditionName，
-                //    遊戲接下來拿它組確認框的文字，變形了也不會有任何訊息。
-                // 🔑 改成把原始位元組直接交給同一個原生 SetString（以 C 字串指標
-                //    為參數的那個多載；原本的 string 多載是產生器包出來的，最後呼叫
-                //    的是同一個遊戲函式），中間不再經過受管理 string。
-                //    純文字的情況下結果與改動前逐位元組相同。
+                // 🔴 Utf8String.ToString() 是 Encoding.UTF8.GetString(AsSpan())，raw 解碼、不剝 SeString payload。遠征名稱是遊戲自己組的文字，帶圖示或連結 payload 時那些控制位元組會被解成 U+FFFD，再編碼回 UTF-8 就不是原來的位元組了。而這個值是寫回代理人的 CurExpeditionName，遊戲接下來拿它組確認框的文字，變形了也不會有任何訊息。
+                // 🔑 改成把原始位元組直接交給同一個原生 SetString（以 C 字串指標為參數的那個多載；原本的 string 多載是產生器包出來的，最後呼叫的是同一個遊戲函式），中間不再經過受管理 string。純文字的情況下結果與改動前逐位元組相同。
                 ref var expedition = ref agent->Data->Expeditions[expeditionId];
                 // StringPtr 是 null 代表那一格的 Utf8String 還沒被建構過。沒有證據說
                 // 原生 SetString 收 null，而舊碼在這種情況下送的是空字串（ToString()

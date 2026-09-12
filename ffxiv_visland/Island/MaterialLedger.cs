@@ -170,8 +170,6 @@ public sealed unsafe class MaterialLedger {
         var data = agent != null ? agent->Data : null;
         if (data == null) {
             // 🔴 讀不到 ≠ 沒有。AgentMJICraftSchedule.Data 是**短命的**:製作預定表關掉之後就變 null。
-            //    實機實證(2026-08-18):同一次登入先讀到 cycle=13 totals=[80, 646, 646],
-            //    使用者離開介面後再開耕地視窗,需求欄整片變成「未知」。
             //    ⇒ 這裡刻意**不清空 Demand、也不把 DemandKnown 打回 false**,
             //      沿用同檔 StockFrozen 的做法:保留上一次的快照,只放掉「本幀活著」。
             //      從沒讀成功過的話 DemandKnown 本來就是 false,照舊走「未知」那條路。
@@ -375,20 +373,11 @@ public sealed unsafe class MaterialLedger {
                 into.Add(row.Info.PouchId);
     }
 
-    /// <summary>
-    /// 依「收納袋現有數量 − 工坊排程需求」由少到多排名(可為負,越負越缺),
-    /// 只看 <paramref name="eligible"/> 裡且已解鎖的材料,取最少的前 <paramref name="topN"/> 名
-    /// 填進 <paramref name="ranks"/>(pouch 列號 -> 名次,0 = 最缺)。
-    ///
-    /// 🔑 扣需求**不會**讓舊的實機 bug 回來。當初派錯地的成因是拿缺口(需求 - 庫存 - 在途 > 0)
-    ///    當**篩選器**:沒被排程吃到的材料(例如無人島鐵礦)需求是 0,就整個被判成「不缺」而消失。
-    ///    這裡是**排序鍵**不是篩選器 —— 需求 0 的材料鍵值就等於它的庫存,照樣參與排名,
-    ///    低庫存照樣排前面;被排程吃掉的材料則往前挪。這正是使用者要的「先扣掉消耗量再找最低」。
-    /// 🔴 需求讀不到時退回純庫存排序(加這個功能之前的行為),並用 <paramref name="demandApplied"/>
-    ///    回報 —— 不可以把「不知道」當 0 去扣,那會讓使用者以為排序已經考慮過消耗量。
+    /// <summary>依「收納袋現有數量 − 工坊排程需求」由少到多排名(可為負,越負越缺),只看 <paramref name="eligible"/> 裡且已解鎖的材料,取最少的前 <paramref name="topN"/> 名填進 <paramref name="ranks"/>(pouch 列號 -> 名次,0 = 最缺)。
+    /// 🔑 扣需求**不會**讓舊的實機 bug 回來。當初派錯地的成因是拿缺口(需求 - 庫存 - 在途 > 0)當**篩選器**:沒被排程吃到的材料(例如無人島鐵礦)需求是 0,就整個被判成「不缺」而消失。這裡是**排序鍵**不是篩選器 —— 需求 0 的材料鍵值就等於它的庫存,照樣參與排名,低庫存照樣排前面;被排程吃掉的材料則往前挪。這正是使用者要的「先扣掉消耗量再找最低」。
+    /// 🔴 需求讀不到時退回純庫存排序(加這個功能之前的行為),並用 <paramref name="demandApplied"/>回報 —— 不可以把「不知道」當 0 去扣,那會讓使用者以為排序已經考慮過消耗量。
     /// ⚠️ 刻意不扣在途:使用者看的就是收納袋上那個數字,而且他只說了扣消耗量。
-    /// 🔴 庫存讀不到時回 false —— 呼叫端要畫 ?,不可以拿全 0 去排名(那會排出一份亂序)。
-    /// </summary>
+    /// 🔴 庫存讀不到時回 false —— 呼叫端要畫 ?,不可以拿全 0 去排名(那會排出一份亂序)。</summary>
     public bool TryRankByNetStock(HashSet<uint> eligible, int topN, int horizon, Dictionary<uint, int> ranks, out bool demandApplied) {
         ranks.Clear();
         demandApplied = DemandKnown && horizon >= 0 && horizon < DemandEntryCount;
