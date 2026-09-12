@@ -8,6 +8,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Lumina.Excel.Sheets;
+using Lumina.Text.ReadOnly;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -484,7 +485,9 @@ public class GatherRouteExec : IDisposable {
         if (!RouteDB.DisableOnErrors || type != XivChatType.ErrorMessage) return;
 
         Service.Log.Verbose($"ErrorMessage fired with string: {message}");
-        var msg = message.TextValue;
+        // 兩端必須用同一套解析器：Dalamud 的 SeString 把連字符 payload(0x1F) 算成 U+2013「–」，
+        // 而 B 端 Lumina 的 ExtractText() 算成 U+002D「-」⇒ 含連字符的訊息恆不相等。
+        var msg = new ReadOnlySeStringSpan(message.Encode()).ExtractText();
         if (logErrors.Any(x => msg == LogMessage.GetRow(x)!.Value.Text.ExtractText()))
             RecordError();
         if (TooManyRecentErrors()) {
