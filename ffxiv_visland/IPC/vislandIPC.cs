@@ -5,16 +5,10 @@ using visland.Helpers;
 
 namespace visland.IPC;
 
-/// <summary>
-/// visland 對外提供的 IPC 端點。
-/// </summary>
-/// <remarks>
-/// 🔴 每一個端點的方法體都包在 <see cref="IpcFrameworkGate"/> 裡：CallGate 是直接方法呼叫，
-/// 這些碼跑在**呼叫端的執行緒**上，而它們動的是 <see cref="GatherRouteExec"/> 的狀態
-/// （裸 <c>List&lt;T&gt;</c> 的路徑點、原生 addon 指標、原生 hook 的開關），
-/// 而 <c>GatherRouteExec.Update</c> 每一幀都在讀同一批東西。閘門的細節與逾時語意寫在
-/// <see cref="IpcFrameworkGate"/> 的註解裡；呼叫端已經在主執行緒上時行為逐字不變。
-/// </remarks>
+/// <summary>visland 對外提供的 IPC 端點。</summary>
+/// <remarks>🔴 每一個端點的方法體都包在 <see cref="IpcFrameworkGate"/> 裡：CallGate 是直接方法呼叫，這些碼跑在**呼叫端的執行緒**上，而它們動的是 <see cref="GatherRouteExec"/> 的狀態
+/// （裸 <c>List&lt;T&gt;</c> 的路徑點、原生 addon 指標、原生 hook 的開關），而 <c>GatherRouteExec.Update</c> 每一幀都在讀同一批東西。閘門的細節與逾時語意寫在
+/// <see cref="IpcFrameworkGate"/> 的註解裡；呼叫端已經在主執行緒上時行為逐字不變。</remarks>
 public class VislandIPC {
     public VislandIPC() {
         // ⚠️ 查詢類端點逾時回的是「保守側」而不是字面上的 false：主執行緒卡住超過五秒時

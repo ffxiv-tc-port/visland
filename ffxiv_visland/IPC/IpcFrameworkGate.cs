@@ -5,43 +5,10 @@ using System.Threading.Tasks;
 
 namespace visland.IPC;
 
-/// <summary>
-/// IPC 端點的「遊戲主執行緒閘門」。
-/// </summary>
-/// <remarks>
-/// 🔴🔴 為什麼需要這一層：Dalamud 的 CallGate 是**直接方法呼叫**，
-/// 提供端的碼跑在**呼叫端的執行緒**上。別的外掛（AutoRetainer、SomethingNeedDoing、
-/// AutoDuty…）從自己的背景工作、<c>Task.Run</c>、或任何非 framework 執行緒打過來時，
-/// visland 這一側就會在那條執行緒上動路線執行器的狀態，而
-/// <see cref="visland.Gathering.GatherRouteExec.Update"/> 每一幀都在讀同一批東西：
-/// <list type="bullet">
-/// <item><c>CurrentRoute.Waypoints</c> 是裸 <c>List&lt;T&gt;</c>。<c>Start</c>／<c>Finish</c>
-/// 都會對它 <c>RemoveAll(...)</c>，而 framework 執行緒同一時間在讀 <c>Waypoints.Count</c>
-/// 並用 <c>CurrentWaypoint</c> 索引 —— 並行改動時的失敗形式不是「拿到舊值」而是
-/// <c>ArgumentOutOfRangeException</c>／清單內部結構壞掉。</item>
-/// <item><c>visland.GatherItem</c> 會解參原生 addon 指標並送
-/// <c>FireCallback</c>（<c>GatheringAddon.Gather</c>）。那是遊戲主執行緒每幀重建的記憶體，
-/// 讀到一半被換掉就是 AccessViolationException —— 而 AVE 在 .NET Core 是
-/// corrupted-state exception，<c>try</c>/<c>catch</c> 攔不到，整個遊戲直接崩掉。</item>
-/// <item><c>Start</c>／<c>Finish</c> 還會翻 <c>OverrideCamera</c>／<c>OverrideMovement</c>
-/// 的 <c>Enabled</c>（會安裝／卸下原生 hook）並呼叫 <c>CompatModule.RestoreChanges</c>
-/// 與 vnavmesh 的 IPC。</item>
-/// </list>
-/// <br/>
-/// 🔑 所以凡是碰得到路線執行器狀態的端點，一律把**整個方法體**交回主執行緒執行，
-/// 不是只有第一行檢查 —— 這樣連下游 helper 也一起被覆蓋，不必逐一追。
-/// <br/><br/>
-/// 📌 <b>已經在主執行緒上呼叫時行為逐字不變</b>：直接就地執行，不配置 Task、
-/// 不改變例外型別、不多花任何一幀。絕大多數消費端（別的外掛在自己的
-/// <c>Framework.Update</c> 或 <c>TaskManager</c> 裡呼叫）走的就是這條路。
-/// <br/><br/>
-/// ⚠️ 逾時的處置：等主執行緒最多 <see cref="TimeoutMs"/> 毫秒。逾時就回該端點的
-/// 「保守值」—— 對查詢類端點是「假設 visland 還忙著」那一側，讓呼叫端繼續等而不是
-/// 搶著開始自己的自動化。同時用 <see cref="Interlocked"/> 把還沒開始跑的工作標成放棄，
-/// 避免「呼叫端已經拿到回值走人了，五秒後路線才真的被啟動」這種無人值守亂跑的形狀。
-/// <br/><br/>
-/// 🔴 用 <c>RunOnFrameworkThread</c> 不是 <c>Framework.Run</c>：前者在已經是主執行緒時
-/// 就地執行，同步等它不會死結；後者一律 <c>StartNew</c>，同步等會死結。
+/// <summary>IPC 端點的「遊戲主執行緒閘門」。</summary>
+/// <remarks>凡是碰得到路線執行器狀態的端點，一律把**整個方法體**交回主執行緒執行，不是只有第一行檢查 —— 這樣連下游 helper 也一起被覆蓋，不必逐一追。
+/// 📌 <b>已經在主執行緒上呼叫時行為逐字不變</b>：直接就地執行，不配置 Task、不改變例外型別、不多花任何一幀。
+/// 🔴 用 <c>RunOnFrameworkThread</c> 不是 <c>Framework.Run</c>：前者在已經是主執行緒時就地執行，同步等它不會死結；後者一律 <c>StartNew</c>，同步等會死結。
 /// </remarks>
 internal static class IpcFrameworkGate {
     /// <summary>等主執行緒的上限。超過就當作「現在做不到」。</summary>
