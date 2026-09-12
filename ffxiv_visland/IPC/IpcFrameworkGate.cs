@@ -68,15 +68,9 @@ internal static class IpcFrameworkGate {
 
     private static readonly Dictionary<string, long> TimeoutLogTimes = [];
 
-    /// <summary>
-    /// 🔴 Dalamud 卸載期的閘門旁路：<c>Framework.RunOnFrameworkThread</c> 在
-    /// <c>IsFrameworkUnloading</c> 為真時會<b>就地在呼叫端執行緒</b>執行 body
-    /// （<c>Dalamud/Game/Framework.cs</c> 的 <c>IsInFrameworkUpdateThread || IsFrameworkUnloading</c>），
-    /// 等於這一層完全失效、原生記憶體存取退回未保護狀態。
-    /// 🔑 所以卸載期一律直接回該端點原本的「不可用」值：那一瞬間功能失效可以接受
-    /// （遊戲要關了），卸載期的 AccessViolationException 不行 —— 使用者看到的是崩潰。
-    /// 📌 已經在 framework 執行緒上時不受影響（那本來就是安全的執行緒），
-    /// 所以外掛自己在 <c>Dispose</c> 裡的同步呼叫行為逐字不變。
+    /// <summary>🔴 Dalamud 卸載期的閘門旁路：<c>Framework.RunOnFrameworkThread</c> 在<c>IsFrameworkUnloading</c> 為真時會<b>就地在呼叫端執行緒</b>執行 body（<c>Dalamud/Game/Framework.cs</c> 的 <c>IsInFrameworkUpdateThread || IsFrameworkUnloading</c>），等於這一層完全失效、原生記憶體存取退回未保護狀態。
+    /// 🔑 所以卸載期一律直接回該端點原本的「不可用」值：那一瞬間功能失效可以接受（遊戲要關了），卸載期的 AccessViolationException 不行 —— 使用者看到的是崩潰。
+    /// 📌 已經在 framework 執行緒上時不受影響（那本來就是安全的執行緒），所以外掛自己在 <c>Dispose</c> 裡的同步呼叫行為逐字不變。
     /// </summary>
     private static bool IsUnloading(string endpoint) {
         if (!Service.Framework.IsFrameworkUnloading || Service.Framework.IsInFrameworkUpdateThread) return false;
