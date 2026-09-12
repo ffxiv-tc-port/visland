@@ -481,6 +481,43 @@ public class GatherRouteExec : IDisposable {
     }
 
     private static readonly uint[] logErrors = [3570, 3574, 3575, 3584, 3589]; // various unable to spearfish errors
+
+    /// <summary>
+    /// <see cref="logErrors"/> 那幾列拆好的比對形狀，第一次收到錯誤訊息時建起來。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>那五列裡有三列（3574／3575／3584）的開頭是 MacroCode.String（0x29）</b>——
+    /// 執行期才帶入角色名。兩端用的 Lumina <c>ExtractText()</c> 把巨集塌成空字串，
+    /// 所以「模板的文字」永遠不會等於「實際收到的那一則訊息」（後者開頭多了角色名）
+    /// ⇒ 舊的 <c>==</c> 比對對這三種情況<b>恆為 false</b>，
+    /// 「偵測到錯誤訊息就停下路線」從來沒有為它們觸發過，而且完全不報錯。
+    /// 改成比對模板拆出來的靜態片段；另外兩列（3570／3589）沒有巨集，
+    /// <see cref="SeStringTemplate.Shape.Matches"/> 對它們仍然走完全相等，行為逐字不變。
+    /// </remarks>
+    private List<SeStringTemplate.Shape>? _logErrorShapes;
+
+    private List<SeStringTemplate.Shape> LogErrorShapes() {
+        if (_logErrorShapes != null) return _logErrorShapes;
+
+        _logErrorShapes = [];
+        foreach (var id in logErrors) {
+            if (LogMessage.GetRow(id) is not { } row) {
+                Service.Log.Information($"LogMessage#{id} 在本服的資料表裡不存在，這一列的採集錯誤訊息偵測停用。");
+                continue;
+            }
+
+            if (SeStringTemplate.TryBuild(row.Text) is not { } shape) {
+                Service.Log.Information($"LogMessage#{id} 的靜態文字不足 {SeStringTemplate.MinStaticChars} 個字元，不足以辨識，這一列的採集錯誤訊息偵測停用。");
+                continue;
+            }
+
+            Service.Log.Information($"LogMessage#{id} 採集錯誤訊息比對形狀：{shape}");
+            _logErrorShapes.Add(shape);
+        }
+
+        return _logErrorShapes;
+    }
+
     private void CheckToDisable(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled) {
         if (!RouteDB.DisableOnErrors || type != XivChatType.ErrorMessage) return;
 
@@ -488,8 +525,13 @@ public class GatherRouteExec : IDisposable {
         // 兩端必須用同一套解析器：Dalamud 的 SeString 把連字符 payload(0x1F) 算成 U+2013「–」，
         // 而 B 端 Lumina 的 ExtractText() 算成 U+002D「-」⇒ 含連字符的訊息恆不相等。
         var msg = new ReadOnlySeStringSpan(message.Encode()).ExtractText();
-        if (logErrors.Any(x => msg == LogMessage.GetRow(x)!.Value.Text.ExtractText()))
+        if (LogErrorShapes().FirstOrDefault(x => x.Matches(msg)) is { } hit) {
+            // 🔑 這一行寫 Information 是刻意的：上面那行傾印是 Verbose，而使用者的 LogLevel 是 1
+            //    ⇒ Verbose 是唯一收不到的等級 ⇒ 實機 log 上永遠零命中，
+            //    不能拿它當「這條路徑沒走到」的依據。命中本身很罕見，不會洗版。
+            Service.Log.Information($"採集錯誤訊息命中 {hit}：{msg}");
             RecordError();
+        }
         if (TooManyRecentErrors()) {
             Service.Log.Debug("Chat error threshold reached. Stopping route.");
             StopOnErrors("聊天錯誤訊息過多");
