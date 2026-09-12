@@ -85,7 +85,6 @@ public static unsafe class Player {
         var gearsets = RaptureGearsetModule.Instance();
         // 🔴 RaptureGearsetModule.Instance() 不是 [StaticAddress] 產生器產出的，是手寫包裝：
         //    「var uiModule = UIModule.Instance(); return uiModule == null ? null : uiModule->GetRaptureGearsetModule();」
-        //    （Dalamud lib/FFXIVClientStructs/.../Client/UI/Misc/RaptureGearsetModule.cs:15-18）
         //    ⇒ 回 null 是合法結果，登入前／登出中拿得到的就是 null。
         //    原本 gearsets->Entries 是對 null+0x50 取 span 再走訪＝AccessViolationException，
         //    而 AVE 在 .NET Core 是 corrupted-state exception，try/catch 攔不到。

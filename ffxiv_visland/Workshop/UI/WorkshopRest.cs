@@ -8,14 +8,9 @@ using visland.Helpers;
 
 namespace visland.Workshop;
 
-// 休日快速設定(參考 DailyRoutines MoreFlexibleMJIWorkdays 的功能形狀):
-// 直接以 14 個核取方塊自由設定本週期/下週期的工房休息日,
-// 不受遊戲原生介面「每週恰好兩天」的限制(0~4 天皆可,含 0 休)。
-// 寫入走 WorkshopUtils.SetRestCycles(遊戲自身的 agent 確認事件,event 5),與排程套用同一條路。
-//
-// ⚠️ 零休(mask==0)的已知風險:agent 以 NewRestCycles==0 代表「尚無變更」
-// (DR 的 MoreFlexibleMJIWorkdays 就有 `if NewRestCycles==0 → 用 RestCycles 回填` 的 sentinel 處理),
-// event 5 對零 mask 可能被當 no-op、或被伺服器拒絕——離線無法驗證。
+// 休日快速設定(參考 DailyRoutines MoreFlexibleMJIWorkdays 的功能形狀):直接以 14 個核取方塊自由設定本週期/下週期的工房休息日,不受遊戲原生介面「每週恰好兩天」的限制(0~4 天皆可,含 0 休)。
+// 寫入走 WorkshopUtils.SetRestCycles,與排程套用同一條路。
+// ⚠️ 零休(mask==0)的已知風險:event 5 對零 mask 可能被當 no-op、或被伺服器拒絕——離線無法驗證。
 // 因此每次寫入後追蹤 RestCycles 是否在時限內變成目標值,不生效時明確標示,讓實機一測就有判定。
 public class WorkshopRest {
     private uint? _pendingMask;

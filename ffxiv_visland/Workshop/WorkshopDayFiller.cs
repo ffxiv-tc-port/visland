@@ -11,28 +11,9 @@ using visland.Island;
 namespace visland.Workshop;
 
 // 補滿封存排程沒有給的生產日。
-//
-// 為什麼需要:Overseas Casuals 的封存每一季都只列 C2~C7,而且其中一天還是休息日 —— 實際只有 5 個生產日。
-// 那是遊戲原生介面的規則(台服 Addon 15146「請為本週期和下週期及其後分別選擇2個生產日作為休息日」,7-2=5),
-// 不是遊戲引擎的限制:AgentMJICraftSchedule.Data->RestCycles 是 14-bit mask、
-// MJIManager.ScheduleCraft 的 cycle 參數吃 0~13,零休息日照排。
-// 所以剩下的兩天用遊戲自己的資料在本機解就好,不需要任何外部資料源
-// (封存 100 季全部都是 5 天格式,去找「7 天的封存」是找不到的)。
-//
-// 價值模型 —— 每一項都來自遊戲資料表,沒有寫死的魔術數字:
-//   單次生產價值 = MJICraftworksObject.Value
-//                × 受歡迎度%   (MJICraftworksPopularity[列] -> MJICraftworksPopularityType.Ratio)
-//                × 市場需求%   (MJICraftworksSupplyDefine[級].Ratio,160/130/100/80/60)
-//                × (與前一件同主題 ? 2 : 1)   (WorkshopSolver.IsLinked,遊戲的效率加成)
-// 工房等級加成(MJICraftworksRankRatio)與熱度(groove)對所有候選是同一個乘數,
-// 不影響排序,故不納入 —— 但也因此這裡算出來的是**相對值**,不是實際貝殼幣。
-//
-// ⚠️ 上面那句「沒有寫死的魔術數字」有一個例外:**過剩材料偏好**
-//    (WorkshopConfig.SurplusPreferencePercent)是使用者參數,不是遊戲資料。
-//    它只乘進**挑選用**的分數,不進 Report 的價值評分 —— 評分那把尺仍然是純貝殼幣相對值,
-//    所以偏好付出的代價會如實顯示在報告與 log 裡,而不是被自己的偏好粉飾掉。
-//    預設 0 = 完全不偏好。
-//
+// 為什麼需要:Overseas Casuals 的封存每一季都只列 C2~C7,而且其中一天還是休息日 —— 實際只有 5 個生產日。那是遊戲原生介面的規則(台服 Addon 15146「請為本週期和下週期及其後分別選擇2個生產日作為休息日」,7-2=5),MJIManager.ScheduleCraft 的 cycle 參數吃 0~13,零休息日照排。所以剩下的兩天用遊戲自己的資料在本機解就好,不需要任何外部資料源(封存 100 季全部都是 5 天格式,去找「7 天的封存」是找不到的)。
+// 價值模型 —— 每一項都來自遊戲資料表,沒有寫死的魔術數字:工房等級加成(MJICraftworksRankRatio)與熱度(groove)對所有候選是同一個乘數,不影響排序,故不納入 —— 但也因此這裡算出來的是**相對值**,不是實際貝殼幣。
+// ⚠️ 上面那句「沒有寫死的魔術數字」有一個例外:**過剩材料偏好**(WorkshopConfig.SurplusPreferencePercent)是使用者參數,不是遊戲資料。它只乘進**挑選用**的分數,不進 Report 的價值評分 —— 評分那把尺仍然是純貝殼幣相對值,所以偏好付出的代價會如實顯示在報告與 log 裡,而不是被自己的偏好粉飾掉。預設 0 = 完全不偏好。
 // 🔑 封存那 5 天造成的市場需求下降必須先累加進來,再解空的兩天,否則會重複挑同一批物品。
 public static unsafe class WorkshopDayFiller {
     public const int HoursPerCycle = 24;

@@ -90,14 +90,9 @@ public static unsafe class WorkshopUtils {
     }
 
     // 放寬「本週期」多出來的休息日,讓封存排程的第二個休息日可以拿來生產。
-    //
-    // 🔴 舊版寫死 mask 0x2081,那是 本週C1(bit0) + 下週C1(bit7) + 下週C7(bit13) 三個位元。
-    //    它從 WorkshopWindow.OnOpen 無條件呼叫(FavourMode == MinMaxFreeRestDay 時),
-    //    等於每開一次工房視窗就把**下週**的休息日覆寫成 C1+C7,
-    //    而變更休息日會刪光那些生產日已排的生產計畫(台服 Addon 15151)。
-    //    現在:下週期的位元原封不動,只碰本週期的低 7 位。
-    // 🔴 而且只做「減少休息日」,絕不新增 —— 零休息日的玩家不該因為開個視窗就多出休息日。
-    //    (只移除休息日時,新的休息日集合是舊集合的子集,不會有任何生產日被清空。)
+    // 🔴 舊版寫死 mask 0x2081,那是 本週C1(bit0) + 下週C1(bit7) + 下週C7(bit13) 三個位元。它從 WorkshopWindow.OnOpen 無條件呼叫(FavourMode == MinMaxFreeRestDay 時),等於每開一次工房視窗就把**下週**的休息日覆寫成 C1+C7,而變更休息日會刪光那些生產日已排的生產計畫(台服 Addon 15151)。
+    // 現在:下週期的位元原封不動,只碰本週期的低 7 位。
+    // 🔴 而且只做「減少休息日」,絕不新增 —— 零休息日的玩家不該因為開個視窗就多出休息日。(只移除休息日時,新的休息日集合是舊集合的子集,不會有任何生產日被清空。)
     public static bool RelaxSecondRestThisWeek() {
         var agent = AgentMJICraftSchedule.Instance();
         if (agent == null || agent->Data == null)

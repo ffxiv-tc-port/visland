@@ -7,41 +7,11 @@ using System.Threading;
 
 namespace visland.Helpers;
 
-/// <summary>
-/// 「同一扇視窗的同一個按法,按過就不要再按,直到它真的收掉」的共用閘門。
-/// visland 對 addon 的所有按法(<see cref="AtkCallback.Fire(string, bool, string, int[])"/>、
-/// <c>AddonUtils.ClickButton</c>、以及兩處直呼 <c>FireCallback</c> 的地方)都要先問過
-/// <see cref="TryBeginPress(string, nint, string)"/>。
-/// </summary>
-/// <remarks>
-/// <para>
-/// 🔴🔴 <b>存在的唯一理由是原生 AccessViolation</b>:「按下即關」的窗被按下之後有
-/// <b>「正在關閉中」的幾幀</b>,這段期間 <c>GetAddonByName</c> 仍然回得到實例、
-/// <c>IsVisible</c> 與 <c>UldManager.LoadedState == Loaded</c> 也都還成立
-/// (＝ <c>AddonUtils.IsAddonReady</c> 三關全過、擋不住這個窗口)。此時再對它送
-/// callback／輸入事件就是原生 AccessViolation(C0000005)。AVE 在 .NET Core 是
-/// corrupted-state exception,<c>try</c>/<c>catch</c> 完全攔不到
-/// (<c>SpiritbondManager.ConfirmMateriaDialog</c> 外面那圈 <c>try/catch</c> 對它無效),
-/// 遊戲當場關閉 —— <b>唯一的防護是「不要送第二次」,不是「送了再接住」</b>。
-/// </para>
-/// <para>
-/// 🔴 節流<b>不是</b>防護:<c>SpiritbondManager._nextRetry</c> 與
-/// <c>PurificationManager._nextRetry</c> 記的是「上一次動作在哪個<b>時刻</b>」,
-/// 不是「這扇窗已經按過」。一次 ≥ 節流長度的幀停頓(讀圖、掉幀)就會讓下一輪
-/// 正好落在關閉中的第 1 幀。
-/// </para>
-/// <para>
-/// 🔴 <b>位址只做等值比較,永遠不解參考。</b> 位址可能被下一扇窗重用,所以要搭配
-/// 「見過生命週期結束」的狀態轉換(<see cref="AddonEvent.PreFinalize"/> ／
-/// <see cref="AddonEvent.PostSetup"/>)與輪詢掃描,再加逃生口兜底。
-/// </para>
-/// <para>
-/// 🔑 <b>粒度＝(窗名, 位址, 按法)</b>。「一扇窗只准按一次」照抄會弄壞「對同一扇窗連送不同參數」
-/// 的正常流程,所以按法(<c>pressKey</c>)要由呼叫端明確給。只有<b>回答一次即終結</b>的窗
-/// (<see cref="SingleAnswerAddons"/>)才把所有按法併成同一個 key ——
-/// 那種窗按第二下的對象一定是關閉中的它自己。
-/// </para>
-/// </remarks>
+/// <summary>「同一扇視窗的同一個按法,按過就不要再按,直到它真的收掉」的共用閘門。visland 對 addon 的所有按法(<see cref="AtkCallback.Fire(string, bool, string, int[])"/>、<c>AddonUtils.ClickButton</c>、以及兩處直呼 <c>FireCallback</c> 的地方)都要先問過<see cref="TryBeginPress(string, nint, string)"/>。</summary>
+/// <remarks>🔴🔴 <b>存在的唯一理由是原生 AccessViolation</b>:「按下即關」的窗被按下之後有<b>「正在關閉中」的幾幀</b>,這段期間 <c>GetAddonByName</c> 仍然回得到實例、<c>IsVisible</c> 與 <c>UldManager.LoadedState == Loaded</c> 也都還成立(＝ <c>AddonUtils.IsAddonReady</c> 三關全過、擋不住這個窗口)。此時再對它送 callback／輸入事件就是原生 AccessViolation(C0000005)。AVE 在 .NET Core 是 corrupted-state exception,<c>try</c>/<c>catch</c> 完全攔不到(<c>SpiritbondManager.ConfirmMateriaDialog</c> 外面那圈 <c>try/catch</c> 對它無效),遊戲當場關閉 —— <b>唯一的防護是「不要送第二次」,不是「送了再接住」</b>。
+/// 🔴 節流<b>不是</b>防護:<c>SpiritbondManager._nextRetry</c> 與<c>PurificationManager._nextRetry</c> 記的是「上一次動作在哪個<b>時刻</b>」,不是「這扇窗已經按過」。一次 ≥ 節流長度的幀停頓(讀圖、掉幀)就會讓下一輪正好落在關閉中的第 1 幀。
+/// 🔴 <b>位址只做等值比較,永遠不解參考。</b> 位址可能被下一扇窗重用,所以要搭配「見過生命週期結束」的狀態轉換(<see cref="AddonEvent.PreFinalize"/> ／<see cref="AddonEvent.PostSetup"/>)與輪詢掃描,再加逃生口兜底。
+/// 🔑 <b>粒度＝(窗名, 位址, 按法)</b>。「一扇窗只准按一次」照抄會弄壞「對同一扇窗連送不同參數」的正常流程,所以按法(<c>pressKey</c>)要由呼叫端明確給。只有<b>回答一次即終結</b>的窗(<see cref="SingleAnswerAddons"/>)才把所有按法併成同一個 key —— 那種窗按第二下的對象一定是關閉中的它自己。</remarks>
 internal static unsafe class AddonPressGuard {
     /// <summary>
     /// 單答終結窗(按下即關)的逃生口。遠大於關閉所需的幀數,只在「按了但窗沒收也沒重建」
@@ -100,14 +70,9 @@ internal static unsafe class AddonPressGuard {
     private static readonly List<string> SweepKeysBuf = [];
     private static readonly List<string> LifecycleKeysBuf = [];
 
-    /// <summary>
-    /// 守衛自己的時鐘。
-    /// <para>🔴🔴 <b>絕對不能用 <c>UiBuilder.FrameCount</c>。</b> 那個計數器的遞增點在
-    /// <c>UiBuilder.OnDraw</c> 的三個「隱藏 UI 就 return」之後(過場動畫、使用者按隱藏 UI 熱鍵、
-    /// GPose,三個開關預設全開)⇒ 過場中它<b>完全不前進</b>,而按下點走的是遊戲更新迴圈、
-    /// 照常每幀被叫到 ⇒ 逃生口永不到期,多次互動窗會停在第一步。</para>
-    /// <para>🔴 遞增點在 <see cref="OnFrameworkUpdate"/> 的<b>第一行</b>,前面不可以有任何條件 ——
-    /// 放到 early return 後面的話,沒有窗被記著時時鐘就停住,等於沒修。</para>
+    /// <summary>守衛自己的時鐘。
+    /// <para>🔴🔴 <b>絕對不能用 <c>UiBuilder.FrameCount</c>。</b> 那個計數器的遞增點在<c>UiBuilder.OnDraw</c> 的三個「隱藏 UI 就 return」之後(過場動畫、使用者按隱藏 UI 熱鍵、GPose,三個開關預設全開)⇒ 過場中它<b>完全不前進</b>,而按下點走的是遊戲更新迴圈、照常每幀被叫到 ⇒ 逃生口永不到期,多次互動窗會停在第一步。</para>
+    /// <para>🔴 遞增點在 <see cref="OnFrameworkUpdate"/> 的<b>第一行</b>,前面不可以有任何條件 —— 放到 early return 後面的話,沒有窗被記著時時鐘就停住,等於沒修。</para>
     /// </summary>
     private static long frameCount;
 
@@ -328,19 +293,10 @@ internal static unsafe class AddonPressGuard {
         return true;
     }
 
-    /// <summary>
-    /// 生命週期解除軌。
-    /// <para>🔴 <b>解除要按位址,不能按名稱整包清。</b> 「同名的第二扇被建立 ⇒ 把整個名稱條目清掉」
-    /// 會造出這條失效路徑:幀 F 對 #A 按下並登記;幀 F+1 #A 進入關閉幀(三關仍全過),
-    /// 此時同名的 #B 被建立 → PostSetup → 整包被清;幀 F+2 按下點仍解到 #A、查無紀錄 → 放行
-    /// ⇒ 對關閉中的 #A 送第二發 ⇒ 原生 AVE。</para>
-    /// <para>🔴🔴 <b><see cref="AddonEvent.PostSetup"/> 只清「不是這一幀才登記的」紀錄。</b>
-    /// AddonLifecycle 監聽器<b>彼此之間</b>的呼叫順序不可依賴(服務端註冊走 <c>RunOnTick</c>,
-    /// 派送時直接列舉不做快照),而 <c>PurificationManager.ResultsSetup</c> 就是
-    /// 「在 PostSetup 處理常式裡直接按下去」的模組 —— 若守衛的 handler 排在它後面,
-    /// 剛登記的紀錄會被自己的 PostSetup 清掉,守衛等於不存在。加上同幀豁免就把順序這個變數整個拿掉。</para>
-    /// <para>📌 從生命週期處理常式裡呼叫 <c>RegisterListener</c> 是安全的:服務端把實際的
-    /// 清單異動延到 <c>RunOnTick</c>,不會在派送當中改到正在被列舉的集合。</para>
+    /// <summary>生命週期解除軌。
+    /// <para>🔴 <b>解除要按位址,不能按名稱整包清。</b> 「同名的第二扇被建立 ⇒ 把整個名稱條目清掉」會造出這條失效路徑:幀 F 對 #A 按下並登記;幀 F+1 #A 進入關閉幀(三關仍全過),此時同名的 #B 被建立 → PostSetup → 整包被清;幀 F+2 按下點仍解到 #A、查無紀錄 → 放行 ⇒ 對關閉中的 #A 送第二發 ⇒ 原生 AVE。</para>
+    /// <para>🔴🔴 <b><see cref="AddonEvent.PostSetup"/> 只清「不是這一幀才登記的」紀錄。</b> AddonLifecycle 監聽器<b>彼此之間</b>的呼叫順序不可依賴(服務端註冊走 <c>RunOnTick</c>,派送時直接列舉不做快照),而 <c>PurificationManager.ResultsSetup</c> 就是「在 PostSetup 處理常式裡直接按下去」的模組 —— 若守衛的 handler 排在它後面,剛登記的紀錄會被自己的 PostSetup 清掉,守衛等於不存在。加上同幀豁免就把順序這個變數整個拿掉。</para>
+    /// <para>📌 從生命週期處理常式裡呼叫 <c>RegisterListener</c> 是安全的:服務端把實際的清單異動延到 <c>RunOnTick</c>,不會在派送當中改到正在被列舉的集合。</para>
     /// </summary>
     private static void EnsureWatching(string addonName) {
         if (Watchers.ContainsKey(addonName))
