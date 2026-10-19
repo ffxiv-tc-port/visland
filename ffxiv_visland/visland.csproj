@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+<Project Sdk="Dalamud.NET.Sdk/13.0.0">
 	<PropertyGroup>
 		<Version>0.0.0.0</Version>
 		<LangVersion>preview</LangVersion>
@@ -7,10 +7,10 @@
 		<Author>veyn, croizat</Author>
 		<Name>Visland</Name>
 		<InternalName>visland</InternalName>
-		<Punchline>Automate island sanctuary activities</Punchline>
-		<Description>Automate gathering, workshop assignments, etc.</Description>
-		<RepoUrl>https://github.com/awgil/ffxiv_visland</RepoUrl>
-		<IconUrl>https://raw.githubusercontent.com/awgil/ffxiv_visland/d3338f6ddbf54365e60fbdf8e85ea8f5abdb745f/icon.png</IconUrl>
+		<Punchline>自動化無人島各項活動</Punchline>
+		<Description>自動化採集、開拓工坊排班等無人島相關作業。</Description>
+		<RepoUrl>https://github.com/ffxiv-tc-port/visland</RepoUrl>
+		<IconUrl>https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/icons/visland.png</IconUrl>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))'">
@@ -19,9 +19,23 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\AutoRetainerAPI\AutoRetainerAPI\AutoRetainerAPI.csproj" />
+		<ProjectReference Include="..\ECommons\ECommons\ECommons.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<EmbeddedResource Include="Workshop\Data\workshop-seasons.json" LogicalName="visland.Workshop.Data.workshop-seasons.json" />
+		<EmbeddedResource Include="Workshop\Data\mji-craft-map.json" LogicalName="visland.Workshop.Data.mji-craft-map.json" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="LanguageChineseTraditional.ini" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<!-- ECommons 的文件註解檔 ECommons.xml 執行期用不到：不複製進輸出目錄，出貨包也就不帶它（ECommons.pdb 照留，崩潰堆疊行號要用）。 -->
+	<Target Name="ExcludeECommonsXmlDoc" AfterTargets="ResolveAssemblyReferences">
+		<ItemGroup>
+			<_ECommonsXmlDoc Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'ECommons.xml'" />
+			<ReferenceCopyLocalPaths Remove="@(_ECommonsXmlDoc)" />
+		</ItemGroup>
+	</Target>
 </Project>

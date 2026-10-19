@@ -1,19 +1,52 @@
-# ffxiv_visland
+# visland
 
-A plugin to automate nearly everything involving Island Sanctuary.
+無人島開拓全方位自動化插件。
 
-Repo
-```
-https://puni.sh/api/repository/veyn
-```
+## 功能
 
-For presets, see the Wiki: https://github.com/awgil/ffxiv_visland/wiki
+- **採集路線**：錄製／播放採集路線，自動移動並採集；可跨區域傳送、可設定路線用的料理，路線中可順便精製魔晶石、修理裝備、精選收藏品
+- **耕地**：自動領取作物、一鍵全部開始／結束託管，並標出開拓工坊排程還需要的量
+- **牧場**：自動領取畜牧產物
+- **屯貨倉庫**：自動領取、自動變更探索目的地；依工坊排程的需求替各探索地點排序
+- **產品交易**：自動出口超過庫存門檻的素材，可選擇保留工坊排程還需要的量
+- **開拓工坊**：排程解算器；載入 Overseas Casuals 封存推薦排程、手動排程、貓耳小員請求整合
+- **缺料總表**：對照工坊排程的需求、背包庫存與屯貨倉庫／耕地／牧場正在產出的量，列出還缺哪些素材（純顯示）
+- **自動化分頁**：在主視窗集中設定屯貨倉庫、耕地、牧場、產品交易的自動化選項（實際按鈕仍要站在對應建築前操作）
+- 跑路線時自動控制移動與鏡頭、避免閒置被登出
+- 跑路線時可選擇在僱員／潛水艇完成時暫停，交給 AutoRetainer 處理完再繼續
+- 提供 IPC（`visland.StartRoute`、`visland.StopRoute` 等）給其他插件啟動／停止路線
 
+## 使用
 
+- `/visland` 開啟主視窗；各分頁功能也會在對應建築物旁的原生介面浮現快速設定
+- `/visland exec <路線名>`：連續執行指定路線；`execonce` 只跑一次；`exectemp`／`exectemponce` 執行未儲存的路線（base64）
+- `/visland stop`／`pause`／`resume`：停止／暫停／繼續目前的路線
+- `/visland moveto <X> <Y> <Z>`：移動到指定座標；`movedir <X> <Y> <Z>`：以角色面向為基準移動指定距離
 
+## 台服版的修改
 
+- 新增「缺料總表」分頁與「自動化」分頁
+- 新增工坊「休息日」分頁：兩週合計 0～4 天自由設定（原生介面固定每週兩天），已開始或已結束的生產日不能改
+- 封存排程只涵蓋 5 個生產日時，可用遊戲的受歡迎度與需求資料在本機補上其餘生產日；貓耳小員請求可設定盡量排在最早的生產日
+- 屯貨倉庫與耕地顯示工坊排程的需求；產品交易可保留工坊還需要的量
+- 路線跑完或因錯誤停下時，可請塔塔露念一句（需安裝 TataruPraise）
+- 「騎乘（不飛行）」航點改成邊走邊上坐騎，不再每段路先停下來召喚
+- 自動採集遇到捕魚錯誤訊息時確實停下
+- 不對正在關閉中的原生視窗重複按下，其他插件的 IPC 呼叫改在遊戲主執行緒上執行，降低崩潰風險
+- 多處降低記憶體用量
+- 介面繁體中文化
 
+## 需要搭配的插件
 
+- 選用：vnavmesh（航點開啟「尋路」時使用）、AutoRetainer（路線中處理僱員／潛水艇）、TataruPraise（塔塔露語音）
 
+## 安裝
 
+在 Dalamud 設定的「自訂插件庫」加入
+`https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/repo.json` 並啟用，
+再從插件列表安裝。
 
+## 作者
+
+原作 [awgil](https://github.com/awgil/ffxiv_visland)、croizat。
+本分支為 [ffxiv-tc-port](https://github.com/ffxiv-tc-port) 針對台服官方繁中版維護的移植版。

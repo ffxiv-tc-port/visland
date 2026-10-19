@@ -10,7 +10,11 @@ public unsafe class GranaryDebug {
     private readonly UITree _tree = new();
 
     public void Draw() {
-        var granary = MJIManager.Instance()->GranariesState;
+        // MJIManager 是 isPointer 的靜態位址,登入前/不在無人島時是 null;下面既有的 granary != null 守衛沿用不變。
+        var mji = MJIManager.Instance();
+        MJIGranariesState* granary = null;
+        if (mji != null)
+            granary = mji->GranariesState;
         foreach (var n in _tree.Node($"Granaries state: {(nint)granary:X}")) {
             if (granary != null) {
                 DrawGranaryState(1, ref granary->Granary[0]);

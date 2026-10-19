@@ -12,6 +12,7 @@ public class NavmeshIPC {
     private readonly ICallGateSubscriber<float> _navBuildProgress;
     private readonly ICallGateSubscriber<bool> _navReload;
     private readonly ICallGateSubscriber<bool> _navRebuild;
+    private readonly ICallGateSubscriber<object> _navPathfindCancelAll;
     private readonly ICallGateSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>> _navPathfind;
     private readonly ICallGateSubscriber<bool> _navIsAutoLoad;
     private readonly ICallGateSubscriber<bool, object> _navSetAutoLoad;
@@ -35,6 +36,7 @@ public class NavmeshIPC {
         _navBuildProgress = Service.Interface.GetIpcSubscriber<float>($"{Name}.Nav.BuildProgress");
         _navReload = Service.Interface.GetIpcSubscriber<bool>($"{Name}.Nav.Reload");
         _navRebuild = Service.Interface.GetIpcSubscriber<bool>($"{Name}.Nav.Rebuild");
+        _navPathfindCancelAll = Service.Interface.GetIpcSubscriber<object>($"{Name}.Nav.PathfindCancelAll");
         _navPathfind = Service.Interface.GetIpcSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>>($"{Name}.Nav.Pathfind");
         _navIsAutoLoad = Service.Interface.GetIpcSubscriber<bool>($"{Name}.Nav.IsAutoLoad");
         _navSetAutoLoad = Service.Interface.GetIpcSubscriber<bool, object>($"{Name}.Nav.SetAutoLoad");
@@ -60,6 +62,7 @@ public class NavmeshIPC {
     public float BuildProgress() => _navBuildProgress.HasFunction ? _navBuildProgress.InvokeFunc() : 0;
     public void Reload() { if (_navReload.HasFunction) _navReload.InvokeFunc(); }
     public void Rebuild() { if (_navRebuild.HasFunction) _navRebuild.InvokeFunc(); }
+    public void PathfindCancelAll() { if (_navPathfindCancelAll.HasAction) _navPathfindCancelAll.InvokeAction(); }
     public Task<List<Vector3>>? Pathfind(Vector3 from, Vector3 to, bool fly = false)
         => _navPathfind.HasFunction ? _navPathfind.InvokeFunc(from, to, fly) : null;
     public bool IsAutoLoad() => _navIsAutoLoad.HasFunction && _navIsAutoLoad.InvokeFunc();
@@ -83,4 +86,12 @@ public class NavmeshIPC {
 
     public bool PathfindAndMoveTo(Vector3 pos, bool fly) => _pathfindAndMoveTo.HasFunction && _pathfindAndMoveTo.InvokeFunc(pos, fly);
     public bool PathfindInProgress() => _pathfindInProgress.HasFunction && _pathfindInProgress.InvokeFunc();
+
+    /// <summary>停掉自己送出的移動：還在算的尋路先取消（只送 Path.Stop 攔不住算完後才開走的那一筆），再停已在走的路徑。</summary>
+    public void StopMovement() {
+        if (PathfindInProgress())
+            PathfindCancelAll();
+        if (IsRunning())
+            Stop();
+    }
 }

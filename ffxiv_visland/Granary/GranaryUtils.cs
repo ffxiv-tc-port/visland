@@ -39,13 +39,30 @@ public static unsafe class GranaryUtils {
                 Service.Log.Info($"=> not enough cowries");
             }
             else {
+                // 🔴 gstate 非 null 只證明「稍早那次 State() 取得到 agent」,這裡是重新取得的一次呼叫,
+                //    而 AgentMJIGatheringHouse.Instance() 合法回 null;agent->Data 是第二層,資料未載入時同樣是 null。
+                //    任一層是 null 就是 AccessViolationException,try/catch 攔不到。
+                // fail-closed:取不到就不送這次遠征指派。維持現狀比在未知狀態下送指令安全。
                 var agent = AgentMJIGatheringHouse.Instance();
+                if (agent == null || agent->Data == null || agent->GranariesState == null) {
+                    Service.Log.Information($"[Granary] SelectExpedition skipped: agent/data/state unavailable (agent={(nint)agent:X})");
+                    return;
+                }
                 agent->CurGranaryIndex = granaryIndex;
                 agent->CurActiveExpeditionId = gstate->ActiveExpeditionId;
                 agent->CurActiveDays = gstate->RemainingDays;
                 agent->CurHoveredExpeditionId = agent->CurSelectedExpeditionId = expeditionId;
                 agent->CurSelectedDays = numDays;
-                agent->CurExpeditionName.SetString(agent->Data->Expeditions[expeditionId].Name.ToString());
+                // 🔴 Utf8String.ToString() 是 raw 解碼、不剝 SeString payload:遠征名稱帶圖示或連結 payload 時,解碼再編碼回 UTF-8 就不是原來的位元組,而這個值會被遊戲拿去組確認框的文字。
+                // 🔑 所以把原始位元組直接交給以 C 字串指標為參數的原生 SetString,中間不經過受管理 string。
+                ref var expedition = ref agent->Data->Expeditions[expeditionId];
+                // StringPtr 是 null 代表那一格的 Utf8String 還沒被建構過。沒有證據說
+                // 原生 SetString 收 null，而舊碼在這種情況下送的是空字串（ToString()
+                // 對空 span 回 string.Empty），所以這裡沿用舊行為。
+                if (expedition.Name.StringPtr.HasValue)
+                    agent->CurExpeditionName.SetString(expedition.Name.StringPtr);
+                else
+                    agent->CurExpeditionName.SetString(string.Empty);
                 agent->ConfirmType = confirm;
                 agent->GranariesState->SelectExpeditionCommit(granaryIndex, expeditionId, numDays);
             }

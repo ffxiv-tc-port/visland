@@ -17,17 +17,23 @@ namespace visland;
 
 public sealed class Plugin : IDalamudPlugin {
     public static string Name => "visland";
-    public static string Repo => "https://puni.sh/api/repository/veyn";
-    internal static string HelpMessage => "Opens the Gathering Menu\n" +
-        $"/{Name} moveto <X> <Y> <Z> → move to raw coordinates\n" +
-        $"/{Name} movedir <X> <Y> <Z> → move this many units over (relative to player facing)\n" +
-        $"/{Name} stop → stop current route\n" +
-        $"/{Name} pause → pause current route\n" +
-        $"/{Name} resume → resume current route\n" +
-        $"/{Name} exec <name> → run route by name continuously\n" +
-        $"/{Name} execonce <name> → run route by name once\n" +
-        $"/{Name} exectemp <base64 route> → run unsaved route continuously\n" +
-        $"/{Name} exectemponce <base64 route> → run unsaved route once";
+    // 這裡絕對不能指國際服的外掛庫：那裡的 vnavmesh 內部名與台服版完全相同，
+    // 加進去會把 API15 的版本裝進台服環境並撞同一個已安裝鍵。一律指本艦隊的 feed
+    //（visland 與 vnavmesh 在本艦隊的 feed 裡也確實是同一個庫，訊息文字照舊成立）。
+    public static string Repo => "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/repo.json";
+    // Only the text after each arrow is translated; everything to the left of it is
+    // literal command syntax the player has to type, so it must stay as-is.
+    internal static string HelpMessage => "Opens the Gathering Menu".Loc() + "\n" +
+        $"/{Name} moveto <X> <Y> <Z> → " + "move to raw coordinates".Loc() + "\n" +
+        $"/{Name} movedir <X> <Y> <Z> → " + "move this many units over (relative to player facing)".Loc() + "\n" +
+        $"/{Name} stop → " + "stop current route".Loc() + "\n" +
+        $"/{Name} tour → " + "start the island tour (you must already be on your island)".Loc() + "\n" +
+        $"/{Name} pause → " + "pause current route".Loc() + "\n" +
+        $"/{Name} resume → " + "resume current route".Loc() + "\n" +
+        $"/{Name} exec <name> → " + "run route by name continuously".Loc() + "\n" +
+        $"/{Name} execonce <name> → " + "run route by name once".Loc() + "\n" +
+        $"/{Name} exectemp <base64 route> → " + "run unsaved route continuously".Loc() + "\n" +
+        $"/{Name} exectemponce <base64 route> → " + "run unsaved route once".Loc();
 
     internal static Plugin P = null!;
 
@@ -40,6 +46,7 @@ public sealed class Plugin : IDalamudPlugin {
             dir.Create();
 
         Service.Init(dalamud);
+        Localization.Init(dalamud.AssemblyLocation.DirectoryName);
 
         P = this;
         _windowSystem.Add(new GatherWindow(), new WorkshopWindow(), new GranaryWindow(), new PastureWindow(), new FarmWindow(), new ExportWindow());
@@ -60,6 +67,8 @@ public sealed class Plugin : IDalamudPlugin {
 
     private void OnDraw() => _windowSystem.Draw();
 
+    internal bool IsWindowOpen<T>() where T : Window => _windowSystem.Get<T>()?.IsOpen == true;
+
     private void OnCommand(string command, string arguments) {
         Service.Log.Debug($"cmd: '{command}', args: '{arguments}'");
         if (arguments.Length == 0)
@@ -77,6 +86,10 @@ public sealed class Plugin : IDalamudPlugin {
                     break;
                 case "stop":
                     Service.RouteExec.Finish();
+                    Service.IslandTour.RequestStop();
+                    break;
+                case "tour":
+                    Service.IslandTour.RequestStart();
                     break;
                 case "pause":
                     Service.RouteExec.Paused = true;

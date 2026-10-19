@@ -12,7 +12,11 @@ public unsafe class PastureDebug {
 
     public void Draw() {
         var mgr = MJIManager.Instance();
-        foreach (var n1 in _tree.Node($"State: level={mgr->IslandState.Pasture.Level}, htc={mgr->IslandState.Pasture.HoursToCompletion}, uc={mgr->IslandState.Pasture.UnderConstruction}, efc={mgr->IslandState.Pasture.EligibleForCare}", mgr->PastureHandler == null)) {
+        // MJIManager 是 isPointer 的靜態位址,登入前/不在無人島時是 null —— 標題字串本身就會解參考,所以判空要在組字串之前。
+        var mgrLabel = mgr == null
+            ? "State: MJIManager unavailable"
+            : $"State: level={mgr->IslandState.Pasture.Level}, htc={mgr->IslandState.Pasture.HoursToCompletion}, uc={mgr->IslandState.Pasture.UnderConstruction}, efc={mgr->IslandState.Pasture.EligibleForCare}";
+        foreach (var n1 in _tree.Node(mgrLabel, mgr == null || mgr->PastureHandler == null)) {
             _tree.LeafNode($"PastureH = {(nint)mgr->PastureHandler:X}");
             foreach (var n2 in _tree.Node("Animal -> leavings")) {
                 foreach ((var k, var v) in mgr->PastureHandler->AnimalToLeavingItemIds) {

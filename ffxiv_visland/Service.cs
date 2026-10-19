@@ -1,4 +1,6 @@
-﻿using Dalamud.IoC;
+﻿using Dalamud.Game;
+using Dalamud.Game.ClientState.Objects;
+using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using System;
@@ -16,6 +18,7 @@ public class Service {
     [PluginService] public static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] public static ITargetManager TargetManager { get; private set; } = null!;
     [PluginService] public static IClientState ClientState { get; private set; } = null!;
+    [PluginService] public static IPlayerState PlayerState { get; private set; } = null!;
     [PluginService] public static ISigScanner SigScanner { get; private set; } = null!;
     [PluginService] public static IGameInteropProvider Hook { get; private set; } = null!;
     [PluginService] public static ICondition Condition { get; private set; } = null!;
@@ -27,7 +30,7 @@ public class Service {
     [PluginService] public static IFramework Framework { get; private set; } = null!;
     [PluginService] public static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] public static IAetheryteList AetheryteList { get; private set; } = null!;
-    [PluginService] public static IPlayerState PlayerState { get; private set; } = null!;
+    [PluginService] public static IToastGui Toasts { get; private set; } = null!;
 
     public static Configuration Config { get; private set; } = null!;
     public static Retainers Retainers { get; private set; } = null!;
@@ -36,10 +39,18 @@ public class Service {
     public static AutoRetainerIPC AutoRetainer { get; private set; } = null!;
     public static VislandIPC Visland { get; private set; } = null!;
     public static GatherRouteExec RouteExec { get; private set; } = null!;
+    public static Island.IslandTour IslandTour { get; private set; } = null!;
+    // 缺料總表的資料層。倉庫策略與出口保留量都必須讀同一份「缺口」定義,
+    // 所以共用一個實例 —— 各自 new 一個的話會各自節流,同一瞬間可能給出不同的數字。
+    public static Island.MaterialLedger Materials { get; private set; } = null!;
 
     public static void Init(IDalamudPluginInterface pi) {
         try {
             pi.Create<Service>();
+            // 🔴 一拿到服務就先起守衛的時鐘:同一個外掛內部的 Framework.Update 沒有 per-handler
+            //    例外隔離(整條多播委派包在單一 try/catch),排在前面的處理常式擲例外會讓後面所有
+            //    處理常式那個 tick 完全不被呼叫。時鐘停住＝逃生口永不到期,所以它要排在最前面。
+            Helpers.AddonPressGuard.Initialize();
             Config = new();
             Config.Initialize(pi.ConfigFile);
             TaskManager = new TaskManager { AbortOnTimeout = true, TimeLimitMS = 20000 };
@@ -47,14 +58,21 @@ public class Service {
             AutoRetainer = new AutoRetainerIPC();
             Retainers = new Retainers();
             RouteExec = new GatherRouteExec();
+            IslandTour = new Island.IslandTour();
             Visland = new VislandIPC();
+            Materials = new Island.MaterialLedger();
         }
         catch (Exception ex) {
+            // Rethrow so Dalamud reports a clean load failure instead of leaving the statics above
+            // half-null and turning every later window/command into a mystery NRE (zombie plugin).
             Log.Error(ex, $"Error initalising {nameof(Service)}");
+            throw;
         }
     }
 
     public static void Dispose() {
+        Helpers.AddonPressGuard.ForceTeardown();
+        IslandTour?.Dispose();
         RouteExec.Dispose();
         TaskManager.Dispose();
         Config.Dispose();

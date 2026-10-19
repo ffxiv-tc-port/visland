@@ -8,6 +8,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using Lumina.Excel.Sheets;
+using Lumina.Text.ReadOnly;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -54,6 +55,7 @@ public class GatherRouteExec : IDisposable {
         Waiting,
         WaitingForAutoRetainer,
         AdjustingPosition,
+        YieldingToManualMove,
     }
 
     private readonly OverrideCamera _camera = new();
@@ -63,12 +65,32 @@ public class GatherRouteExec : IDisposable {
     private readonly Queue<long> _recentErrors = new();
     private const int MaxRecentErrors = 5;
 
+    // The repair chain runs on a task manager that clears its entire queue when a step exceeds 20s, and
+    // CanRepairAny() is recomputed from live durability rather than latched. A repair that can never
+    // succeed (repair action unusable, dark matter consumed mid-route, window never opens) would
+    // therefore be re-queued every 20s forever and the route would silently stall in place.
+    private int _repairAttempts;
+    private const int MaxRepairAttempts = 3;
+
+    // 尋路模式下使用者手動移動讓 vnavmesh 取消路徑時，不在下一幀就重送（照 BOCCHI 的讓位形狀）。
+    private readonly ManualMoveYield _manualMove = new();
+    private GatherRouteDB.Waypoint? _manualMoveWaypoint;
+
+    private readonly RouteStuckWatch _stuck = new();
+    private GatherRouteDB.Waypoint? _stuckWaypoint;
+
     public GatherRouteExec() {
         RouteDB = Service.Config.Get<GatherRouteDB>();
+        // These subscriptions drive "stop route on error": without them both CheckToDisable overloads are
+        // dead code and the stop-on-error setting never triggers.
+        Service.ChatGui.CheckMessageHandled += CheckToDisable;
+        Service.Toasts.ErrorToast += CheckToDisable;
         Service.Framework.Update += Update;
     }
 
     public void Dispose() {
+        Service.ChatGui.CheckMessageHandled -= CheckToDisable;
+        Service.Toasts.ErrorToast -= CheckToDisable;
         Service.Framework.Update -= Update;
         Finish();
         _camera.Dispose();
@@ -84,6 +106,11 @@ public class GatherRouteExec : IDisposable {
         Loop = loopAtEnd;
         route.Waypoints[waypoint].Pathfind = pathfind;
         Pathfind = pathfind;
+        _repairAttempts = 0;
+        _manualMove.Reset();
+        _manualMoveWaypoint = null;
+        _stuck.Reset();
+        _stuckWaypoint = null;
         _camera.Enabled = true;
         _movement.Enabled = true;
     }
@@ -92,6 +119,12 @@ public class GatherRouteExec : IDisposable {
         SetState(State.None);
         if (CurrentRoute == null) return;
 
+        // 已排入的傳送、換職業、修理、精製、精選都屬於這條路線：停下就一起丟掉（只排在路線期間，見各 Enqueue 呼叫端）。
+        Service.TaskManager.Clear();
+        _manualMove.Reset();
+        _manualMoveWaypoint = null;
+        _stuck.Reset();
+        _stuckWaypoint = null;
         CurrentRoute.Waypoints.RemoveAll(x => x.IsPhantom);
         CurrentRoute = null;
         CurrentWaypoint = 0;
@@ -101,13 +134,16 @@ public class GatherRouteExec : IDisposable {
         _camera.Enabled = false;
         _movement.Enabled = false;
         CompatModule.RestoreChanges();
-        if (Pathfind && Service.Navmesh.IsRunning())
-            Service.Navmesh.Stop();
+        if (Pathfind)
+            Service.Navmesh.StopMovement();
     }
 
     public unsafe void Update(IFramework _) {
         _camera.SpeedH = _camera.SpeedV = default;
-        _movement.DesiredPosition = Player.Object?.Position ?? new();
+        // MountNoFly 是邊走邊上坐騎，所以上坐騎的那幾幀目標點要留在航點上；
+        // 其餘情況維持「目標＝自己現在的位置」＝原地不動。
+        var mountWhileMoving = CurrentRoute != null && CurrentWaypoint < CurrentRoute.Waypoints.Count ? CurrentRoute.Waypoints[CurrentWaypoint] : null;
+        _movement.DesiredPosition = CurrentState == State.Mounting && mountWhileMoving?.Movement == GatherRouteDB.Movement.MountNoFly ? mountWhileMoving.Position : Player.Object?.Position ?? new();
 
         if (Paused && Service.Navmesh.IsRunning())
             Service.Navmesh.Stop();
@@ -136,8 +172,15 @@ public class GatherRouteExec : IDisposable {
 
         if (AddonUtils.IsOccupied()) return; // must check after auto gathering
 
+        UpdateActiveRoute();
+    }
+
+    // 從 Update 拆出：下面的 lambda 捕獲 wp，留在 Update 裡的話沒有路線的每一幀也會在入口配置閉包。
+    // 只由 Update 在判過 Player.Available、CurrentRoute 非 null、航點索引在範圍內之後呼叫。
+    private unsafe void UpdateActiveRoute() {
+        System.Diagnostics.Debug.Assert(CurrentRoute != null);
         var wp = CurrentRoute.Waypoints[CurrentWaypoint];
-        var toWaypoint = wp.Position - Player.Object.Position;
+        var toWaypoint = wp.Position - Player.Object!.Position;
         var needToGetCloser = toWaypoint.LengthSquared() > wp.Radius * wp.Radius;
         Pathfind = wp.Pathfind;
 
@@ -188,19 +231,36 @@ public class GatherRouteExec : IDisposable {
             // skip current waypoint if target isn't there
             if (wp.IsNode && Player.DistanceTo(wp.Position) < 50 && !Service.ObjectTable.Any(x => x.BaseId == wp.InteractWithOID && x.IsTargetable)) {
                 Service.Log.Debug("Current waypoint target is not targetable, moving to next waypoint");
-                if (Service.Navmesh.IsRunning())
-                    Service.Navmesh.Stop();
+                Service.Navmesh.StopMovement();
                 goto next;
             }
 
-            if (Service.Navmesh.IsRunning()) { SetState(State.WaitingForDestination); return; }
-            if (wp.Movement != GatherRouteDB.Movement.Normal && !Player.Mounted) {
+            if (Pathfind && Service.Navmesh.IsEnabled && YieldToManualMovement(wp))
+                return;
+
+            if (HandleStuck(wp, toWaypoint.Length()))
+                return;
+
+            if (Service.Navmesh.IsRunning()) {
+                if (wp.Movement == GatherRouteDB.Movement.MountNoFly && !Player.Mounted) {
+                    SetState(State.Mounting);
+                    Player.Mount();
+                    return;
+                }
+
+                SetState(State.WaitingForDestination);
+                return;
+            }
+
+            if (wp.Movement != GatherRouteDB.Movement.Normal && !Player.Mounted && wp.Movement != GatherRouteDB.Movement.MountNoFly) {
                 SetState(State.Mounting);
                 Player.Mount();
                 return;
             }
 
-            Player.Sprint();
+            // MountNoFly 的上坐騎在下面（移動指令送出之後），這裡不送衝刺以免打斷騎乘。
+            if (wp.Movement != GatherRouteDB.Movement.MountNoFly)
+                Player.Sprint();
 
             if (wp.Movement == GatherRouteDB.Movement.MountFly && Player.Mounted && !Player.InclusiveFlying) {
                 // TODO: improve, jump is not the best really...
@@ -209,17 +269,26 @@ public class GatherRouteExec : IDisposable {
                 return;
             }
 
+            // 同一幀只決定一次狀態：邊走邊上坐騎時直接設 Mounting。
+            // 先設 Moving 再改 Mounting 會讓 SetState 的去重每幀失效，每幀多寫兩行 log。
+            var mountNow = wp.Movement == GatherRouteDB.Movement.MountNoFly && !Player.Mounted;
+            var moveState = mountNow ? State.Mounting : State.Moving;
+
             if (Pathfind && Service.Navmesh.IsEnabled) {
                 if (!Service.Navmesh.IsReady() || Service.Navmesh.PathfindInProgress()) { SetState(State.WaitingForNavmesh); return; }
-                SetState(State.Moving);
+                SetState(moveState);
+                _stuck.NoteSend();
                 Service.Navmesh.PathfindAndMoveTo(wp.Position, wp.Movement == GatherRouteDB.Movement.MountFly || Player.InclusiveFlying);
             }
             else {
-                SetState(State.Moving);
+                SetState(moveState);
                 _movement.DesiredPosition = wp.Position;
                 _camera.SpeedH = _camera.SpeedV = 360.Degrees();
                 _camera.DesiredAzimuth = Angle.FromDirection(toWaypoint.X, toWaypoint.Z) + 180.Degrees();
             }
+
+            if (mountNow)
+                Player.Mount();
 
             return;
         }
@@ -289,11 +358,22 @@ public class GatherRouteExec : IDisposable {
             return;
         }
 
-        if (RouteDB.RepairGear && RepairAssistantManager.CanRepairAny(RouteDB.RepairPercent) && !AddonUtils.IsOccupied() && !Service.Condition[ConditionFlag.Mounted]) {
-            SetState(State.RepairingGear);
-            Service.Log.Debug("Repair gear task queued.");
-            Service.TaskManager.Enqueue(RepairAssistantManager.ProcessRepair, "RepairGear");
-            return;
+        var needsRepair = RouteDB.RepairGear && RepairAssistantManager.CanRepairAny(RouteDB.RepairPercent);
+        if (!needsRepair) {
+            _repairAttempts = 0; // gear is fine (or the feature is off) — a later repair starts from a clean slate
+        }
+        else if (!AddonUtils.IsOccupied() && !Service.Condition[ConditionFlag.Mounted]) {
+            if (_repairAttempts < MaxRepairAttempts) {
+                ++_repairAttempts;
+                SetState(State.RepairingGear);
+                Service.Log.Debug($"Repair gear task queued (attempt {_repairAttempts}/{MaxRepairAttempts}).");
+                Service.TaskManager.Enqueue(RepairAssistantManager.ProcessRepair, "RepairGear");
+                return;
+            }
+            if (_repairAttempts == MaxRepairAttempts) {
+                ++_repairAttempts; // only complain once
+                Service.Log.Error($"Gear still needs repair after {MaxRepairAttempts} attempts; continuing the route without repairing.");
+            }
         }
 
         if (RouteDB.PurifyCollectables && PurificationManager.CanPurifyAny() && !AddonUtils.IsOccupied() && !Service.Condition[ConditionFlag.Mounted]) {
@@ -349,8 +429,79 @@ public class GatherRouteExec : IDisposable {
                 CurrentRoute.Waypoints.RemoveAll(x => x.IsPhantom);
                 CurrentWaypoint = 0;
             }
-            else
+            else {
+                // 🔴 這是整個檔案裡唯一「路線真的跑完了」的地方（走到最後一個點而且沒開循環）。
+                //    本檔其餘 Finish() 呼叫點都不是：Dispose()＝卸載、StartRoute＝換路線、
+                //    !ContinueToNext＝單點模式、StopOnErrors＝錯誤中止（走「需要幫忙」）。
+                //    名字要在 Finish() 之前抄下來 —— Finish() 會把 CurrentRoute 設成 null。
+                var routeName = CurrentRoute.Name;
                 Finish();
+                IPC.TataruPraiseIPC.TryPraiseRouteDone($"路線「{routeName}」跑完");
+            }
+        }
+    }
+
+    /// <summary>回 true＝使用者在手動移動（或正在確認是不是），這一幀不重送路徑。只在 framework 執行緒、尋路模式的移動分支呼叫。</summary>
+    private bool YieldToManualMovement(GatherRouteDB.Waypoint wp) {
+        if (!ReferenceEquals(wp, _manualMoveWaypoint)) {
+            _manualMove.Reset();
+            _manualMoveWaypoint = wp;
+        }
+
+        var navigating = Service.Navmesh.IsRunning() || Service.Navmesh.PathfindInProgress();
+        var busy = Player.Mounting || Player.IsJumping || Player.IsCasting
+            || Service.Condition[ConditionFlag.BetweenAreas] || Service.Condition[ConditionFlag.BetweenAreas51];
+        var player = Player.Position;
+        switch (_manualMove.Observe(player, navigating, busy, Environment.TickCount64)) {
+            case ManualMoveYield.Step.Started:
+                Service.Log.Information($"[路線讓位] 導航停了、角色以 {_manualMove.LastSpeed:F1} 米/秒持續移動 {ManualMoveYield.ConfirmMs / 1000f:F1} 秒：判定你在手動移動，暫停重送路徑；"
+                    + $"角色靜止 {ManualMoveYield.ResumeQuietMs / 1000f:F1} 秒後從目前位置接續，單次讓位上限 {ManualMoveYield.MaxYieldMs / 1000} 秒。航點 {wp.Position:F1}");
+                SetState(State.YieldingToManualMove);
+                return true;
+            case ManualMoveYield.Step.Hold:
+                return true;
+            case ManualMoveYield.Step.Resumed:
+                Service.Log.Information($"[路線讓位] 角色已靜止，從目前位置 {player:F1} 接續前往航點 {wp.Position:F1}。");
+                return false;
+            case ManualMoveYield.Step.Expired:
+                Service.Log.Information($"[路線讓位] 讓位超過 {ManualMoveYield.MaxYieldMs / 1000} 秒：前往這個航點的這一趟之後不再讓位，照原本的重送規則。");
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>回 true＝這一幀已經處理卡住（重找路、跳躍或停下路線）。只在 framework 執行緒、路線的移動分支呼叫。</summary>
+    private bool HandleStuck(GatherRouteDB.Waypoint wp, float distanceToWaypoint) {
+        if (!ReferenceEquals(wp, _stuckWaypoint)) {
+            _stuck.Reset();
+            _stuckWaypoint = wp;
+        }
+
+        var pathfindMode = Pathfind && Service.Navmesh.IsEnabled;
+        // 只在自己的移動應該推著角色走時計時：算路中、還要先上坐騎的幀不算。
+        var needsMountFirst = wp.Movement != GatherRouteDB.Movement.Normal && !Player.Mounted && wp.Movement != GatherRouteDB.Movement.MountNoFly;
+        var counting = pathfindMode ? Service.Navmesh.IsRunning() : !needsMountFirst;
+        var action = _stuck.Observe(Player.Position, distanceToWaypoint, counting, Environment.TickCount64);
+        if (action == RouteStuckWatch.Action.None)
+            return false;
+
+        var where = $"航點 #{CurrentWaypoint}（{wp.Position:F1}），目前位置 {Player.Position:F1}、距離 {distanceToWaypoint:F1} 米";
+        switch (action) {
+            case RouteStuckWatch.Action.Repath when pathfindMode:
+                Service.Log.Information($"[路線卡住] {where}：{RouteStuckWatch.NoProgressMs / 1000} 秒內沒有前進 {RouteStuckWatch.ProgressDistance} 米（或重送 {RouteStuckWatch.MaxSendsWithoutProgress} 次沒有進展），停下重新找路。");
+                Service.Navmesh.StopMovement();
+                return true;
+            case RouteStuckWatch.Action.Repath:
+            case RouteStuckWatch.Action.Jump:
+                Service.Log.Information($"[路線卡住] {where}：仍然沒有進展（第 {_stuck.Level} 次），跳一下。");
+                Player.Jump();
+                return true;
+            default:
+                Service.Log.Information($"[路線卡住] {where}：重新找路與跳躍後仍然沒有進展，停止路線。");
+                Service.ChatGui.PrintError($"[{Service.Interface.InternalName}] 採集路線在航點 #{CurrentWaypoint} 附近卡住（重新找路與跳躍都沒有前進），已停止路線。");
+                StopOnErrors("移動卡住");
+                return true;
         }
     }
 
@@ -414,8 +565,16 @@ public class GatherRouteExec : IDisposable {
             wp.AddWaypointsAfter(CurrentRoute!, waypoints);
     }
 
-    private unsafe List<(MiniMapGatheringMarker Marker, Vector3 Position, float DistanceToLast, IGameObject? Node)> GetGatheringMarkers()
-        => [.. AgentMap.Instance()->MiniMapGatheringMarkers.ToArray()
+    // 🔴 AgentMap.Instance() 是產生器產出的取得子,本體即「agentModule == null ? null : ...」,
+    //    換區/登入途中 AgentModule 還沒建好時合法回 null。裸解參考 = AccessViolationException,
+    //    corrupted-state exception,try/catch 攔不到,沒有第二道防線。
+    // fail-closed:拿不到地圖 agent 就回空清單。兩個呼叫端對空清單的既有反應都是
+    //    「Player.RevealNode(); return;」—— 那是本來就會走到的路徑,退化行為良性。
+    private unsafe List<(MiniMapGatheringMarker Marker, Vector3 Position, float DistanceToLast, IGameObject? Node)> GetGatheringMarkers() {
+        var agent = AgentMap.Instance();
+        if (agent == null)
+            return [];
+        return [.. agent->MiniMapGatheringMarkers.ToArray()
             .Where(x => x.MapMarker.IconId != 0)
             .Select((marker, index) => {
                 var pos = new Vector3(marker.MapMarker.X / 16, Player.Position.Y, marker.MapMarker.Y / 16);
@@ -424,6 +583,7 @@ public class GatherRouteExec : IDisposable {
                 Service.Log.Debug($"Found {nameof(MiniMapGatheringMarker)} @ {pos} {(obj != null ? $"and matching object [{obj.BaseId}] {obj.Name.TextValue} @ {obj.Position}" : string.Empty)}");
                 return (Marker: marker, Position: obj != null ? obj.Position : pos, DistanceToLast: dist, Node: obj);
             })];
+    }
     #endregion
 
     #region Error Checking
@@ -433,22 +593,69 @@ public class GatherRouteExec : IDisposable {
         RecordError();
         if (TooManyRecentErrors()) {
             Service.Log.Debug("Toast error threshold reached. Stopping route.");
-            Finish();
+            StopOnErrors("錯誤提示過多");
         }
     }
 
     private static readonly uint[] logErrors = [3570, 3574, 3575, 3584, 3589]; // various unable to spearfish errors
+
+    /// <summary><see cref="logErrors"/> 那幾列拆好的比對形狀，第一次收到錯誤訊息時建起來。</summary>
+    /// <remarks>🔴 部分列的開頭是 MacroCode.String（執行期才帶入角色名），Lumina <c>ExtractText()</c> 把巨集塌成空字串，「模板的文字」永遠不會等於實際收到的那一則訊息
+    /// ⇒ 用 <c>==</c> 比對對這些列<b>恆為 false</b>，而且完全不報錯。
+    /// 所以比對模板拆出來的靜態片段；沒有巨集的列，<see cref="SeStringTemplate.Shape.Matches"/> 仍然走完全相等。</remarks>
+    private List<SeStringTemplate.Shape>? _logErrorShapes;
+
+    private List<SeStringTemplate.Shape> LogErrorShapes() {
+        if (_logErrorShapes != null) return _logErrorShapes;
+
+        _logErrorShapes = [];
+        foreach (var id in logErrors) {
+            if (LogMessage.GetRow(id) is not { } row) {
+                Service.Log.Information($"LogMessage#{id} 在本服的資料表裡不存在，這一列的採集錯誤訊息偵測停用。");
+                continue;
+            }
+
+            if (SeStringTemplate.TryBuild(row.Text) is not { } shape) {
+                Service.Log.Information($"LogMessage#{id} 的靜態文字不足 {SeStringTemplate.MinStaticChars} 個字元，不足以辨識，這一列的採集錯誤訊息偵測停用。");
+                continue;
+            }
+
+            Service.Log.Information($"LogMessage#{id} 採集錯誤訊息比對形狀：{shape}");
+            _logErrorShapes.Add(shape);
+        }
+
+        return _logErrorShapes;
+    }
+
     private void CheckToDisable(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled) {
         if (!RouteDB.DisableOnErrors || type != XivChatType.ErrorMessage) return;
 
         Service.Log.Verbose($"ErrorMessage fired with string: {message}");
-        var msg = message.TextValue;
-        if (logErrors.Any(x => msg == LogMessage.GetRow(x)!.Value.Text.ExtractText()))
+        // 兩端必須用同一套解析器：Dalamud 的 SeString 把連字符 payload(0x1F) 算成 U+2013「–」，
+        // 而 B 端 Lumina 的 ExtractText() 算成 U+002D「-」⇒ 含連字符的訊息恆不相等。
+        var msg = new ReadOnlySeStringSpan(message.Encode()).ExtractText();
+        if (LogErrorShapes().FirstOrDefault(x => x.Matches(msg)) is { } hit) {
+            // 🔑 要使用者回報的診斷：上面那行傾印是 Verbose、實機 log 收不到，
+            //    不能拿它當「這條路徑沒走到」的依據。命中本身很罕見，不會洗版。
+            Service.Log.Information($"採集錯誤訊息命中 {hit}：{msg}");
             RecordError();
+        }
         if (TooManyRecentErrors()) {
             Service.Log.Debug("Chat error threshold reached. Stopping route.");
-            Finish();
+            StopOnErrors("聊天錯誤訊息過多");
         }
+    }
+
+    /// <summary>因為連續錯誤而中止路線，並（若使用者開著）請塔塔露念一句「需要幫忙」。</summary>
+    /// <remarks>🔴 <b>要先判 <see cref="CurrentRoute"/> 不是 null 才算「這一次真的停掉了一條路線」。</b><see cref="_recentErrors"/> 只在 <see cref="Update"/> 走到下一個點時才清空，路線一停門檻會維持成立達 30 秒，
+    /// 那段期間再來的每一則錯誤訊息都會再走一次這裡（<see cref="Finish"/> 本身是 no-op），沒有這道判斷會<b>連續念好幾次</b>。</remarks>
+    /// <param name="reason">寫進記錄用的來源描述。</param>
+    private void StopOnErrors(string reason) {
+        var stopped = CurrentRoute != null;
+        var routeName = CurrentRoute?.Name ?? string.Empty;
+        Finish();
+        if (stopped)
+            IPC.TataruPraiseIPC.TryPraiseErrorStop($"路線「{routeName}」因{reason}被停下");
     }
 
     private void RecordError() {

@@ -47,7 +47,7 @@ public static unsafe class Utils {
         var res = item();
         ImGui.EndDisabled();
         if (disabled && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            ImGui.SetTooltip("Hold shift");
+            ImGui.SetTooltip("Hold shift".Loc());
         return res;
     }
     public static bool DangerousButton(string label) => DangerousItem(() => ImGui.Button(label));
@@ -62,7 +62,7 @@ public static unsafe class Utils {
         else
             ImGui.Dummy(size);
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Work in progress");
+            ImGui.SetTooltip("Work in progress".Loc());
     }
 
     private static float startTime;
@@ -192,8 +192,18 @@ public static unsafe class Utils {
         return clicked;
     }
 
-    public static int EorzeanHour() => DateTimeOffset.FromUnixTimeSeconds(Framework.Instance()->ClientTime.EorzeaTime).Hour;
-    public static int EorzeanMinute() => DateTimeOffset.FromUnixTimeSeconds(Framework.Instance()->ClientTime.EorzeaTime).Minute;
+    // Framework.Instance() 是 isPointer 的 [StaticAddress]：多解參考一層，所以它真的會回 null(登入前、登出後、關閉中都是常態)。
+    // ClientTime 是內嵌在 Framework 的欄位，裸讀 EorzeaTime 等於對 null 加偏移解參考 ＝ 攔不到的 AccessViolationException ⇒ 只能事前判空。
+    // 取不到就回 0：WaitTimeET 等於 default(0,0) 時整個條件短路，所以回 0 永遠比對不中，效果是「這一輪繼續等」而不是「誤判時間到而提前前進」。
+    public static int EorzeanHour() {
+        var framework = Framework.Instance();
+        return framework == null ? 0 : DateTimeOffset.FromUnixTimeSeconds(framework->ClientTime.EorzeaTime).Hour;
+    }
+
+    public static int EorzeanMinute() {
+        var framework = Framework.Instance();
+        return framework == null ? 0 : DateTimeOffset.FromUnixTimeSeconds(framework->ClientTime.EorzeaTime).Minute;
+    }
 }
 
 public static class Extensions {

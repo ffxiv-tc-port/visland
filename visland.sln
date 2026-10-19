@@ -12,6 +12,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AutoRetainerAPI", "AutoRetainerAPI\AutoRetainerAPI\AutoRetainerAPI.csproj", "{A249078F-4EC4-4A49-95FF-1D25ED2006F7}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ECommons", "ECommons\ECommons\ECommons.csproj", "{2884664D-BDCE-49E5-97DC-2B4903D78ECC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,6 +38,14 @@ Global
 		{A249078F-4EC4-4A49-95FF-1D25ED2006F7}.Release|Any CPU.Build.0 = Release|x64
 		{A249078F-4EC4-4A49-95FF-1D25ED2006F7}.Release|x64.ActiveCfg = Release|x64
 		{A249078F-4EC4-4A49-95FF-1D25ED2006F7}.Release|x64.Build.0 = Release|x64
+		{2884664D-BDCE-49E5-97DC-2B4903D78ECC}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{2884664D-BDCE-49E5-97DC-2B4903D78ECC}.Debug|Any CPU.Build.0 = Debug|x64
+		{2884664D-BDCE-49E5-97DC-2B4903D78ECC}.Debug|x64.ActiveCfg = Debug|x64
+		{2884664D-BDCE-49E5-97DC-2B4903D78ECC}.Debug|x64.Build.0 = Debug|x64
+		{2884664D-BDCE-49E5-97DC-2B4903D78ECC}.Release|Any CPU.ActiveCfg = Release|x64
+		{2884664D-BDCE-49E5-97DC-2B4903D78ECC}.Release|Any CPU.Build.0 = Release|x64
+		{2884664D-BDCE-49E5-97DC-2B4903D78ECC}.Release|x64.ActiveCfg = Release|x64
+		{2884664D-BDCE-49E5-97DC-2B4903D78ECC}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -10,7 +10,7 @@ unsafe class PastureWindow : UIAttachedWindow {
     private readonly PastureConfig _config;
     private readonly PastureDebug _debug = new();
 
-    public PastureWindow() : base("Pasture Automation", "MJIAnimalManagement", new(400, 600)) {
+    public PastureWindow() : base("Pasture Automation".Loc(), "MJIAnimalManagement", new(400, 600)) {
         _config = Service.Config.Get<PastureConfig>();
     }
 
@@ -32,24 +32,24 @@ unsafe class PastureWindow : UIAttachedWindow {
     public override void Draw() {
         using var tabs = ImRaii.TabBar("Tabs");
         if (tabs) {
-            using (var tab = ImRaii.TabItem("Main"))
+            using (var tab = ImRaii.TabItem("Main".Loc()))
                 if (tab)
                     DrawMain();
-            using (var tab = ImRaii.TabItem("Debug"))
+            using (var tab = ImRaii.TabItem("Debug".Loc()))
                 if (tab)
                     _debug.Draw();
         }
     }
 
     private void DrawMain() {
-        if (UICombo.Enum("Auto Collect", ref _config.Collect))
+        if (UICombo.Enum("Auto Collect".Loc(), ref _config.Collect))
             _config.NotifyModified();
         ImGui.Separator();
 
         var mji = MJIManager.Instance();
         var agent = AgentMJIAnimalManagement.Instance();
         if (mji == null || mji->PastureHandler == null || mji->IslandState.Pasture.EligibleForCare == 0 || agent == null) {
-            ImGui.TextUnformatted("Mammets not available!");
+            ImGui.TextUnformatted("Mammets not available!".Loc());
             return;
         }
 
@@ -61,22 +61,22 @@ unsafe class PastureWindow : UIAttachedWindow {
         if (res != CollectResult.NothingToCollect) {
             // if there's uncollected stuff - propose to collect everything
             using (ImRaii.Disabled(res == CollectResult.EverythingCapped)) {
-                if (ImGui.Button("Collect all"))
+                if (ImGui.Button("Collect all".Loc()))
                     CollectAll();
                 if (res != CollectResult.CanCollectSafely) {
                     ImGui.SameLine();
                     using (ImRaii.PushColor(ImGuiCol.Text, 0xff0000ff))
-                        ImGui.TextV(res == CollectResult.EverythingCapped ? "Inventory is full!" : "Warning: some resources will overcap!");
+                        ImGui.TextV(res == CollectResult.EverythingCapped ? "Inventory is full!".Loc() : "Warning: some resources will overcap!".Loc());
                 }
             }
         }
         else {
             // TODO: think about any other global operations?
-            ImGui.TextV("Nothing to collect!");
+            ImGui.TextV("Nothing to collect!".Loc());
         }
     }
 
-    private CollectResult CalculateCollectResult() {
+    internal static CollectResult CalculateCollectResult() {
         var mji = MJIManager.Instance();
         if (mji == null || mji->PastureHandler == null)
             return CollectResult.NothingToCollect;

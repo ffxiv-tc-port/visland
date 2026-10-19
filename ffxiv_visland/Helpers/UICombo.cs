@@ -11,9 +11,11 @@ using System.Reflection;
 namespace visland.Helpers;
 
 public static class UICombo {
+    // 過 .Loc():這是全 visland 所有列舉下拉的顯示字串來源。
+    // 沒補譯的列舉 .Loc() 會原樣回傳。
     public static string EnumString(Enum v) {
         var name = v.ToString();
-        return v.GetType().GetField(name)?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? name;
+        return (v.GetType().GetField(name)?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? name).Loc();
     }
 
     public static bool Enum<T>(string label, ref T v) where T : Enum {
