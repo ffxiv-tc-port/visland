@@ -87,6 +87,12 @@ public class GatherRouteDB : Configuration.Node {
     public bool TeleportBetweenZones = true;
     public bool AutoGather;
 
+    /// <summary>不管航點自己有沒有勾「尋路?」，每一段都用 vnavmesh 尋路；沒載入 vnavmesh、網格還沒建好、尋路失敗時那一段退回直線。</summary>
+    public bool PathfindAllWaypoints = true;
+
+    /// <summary>這一段（尋路路徑總長；直線移動時是直線距離）短於這個米數就不上坐騎直接走；0＝關閉。已經在坐騎上不會因此下來。</summary>
+    public float NoMountUnderDistance = 20;
+
     /// <summary>
     /// 路線<b>整條跑完</b>時，請「塔塔露誇獎」(TataruPraise) 念一句。
     /// </summary>
@@ -139,6 +145,9 @@ public class GatherRouteDB : Configuration.Node {
         //    寫成 ?? false 的話「新裝的人有聲音、既有使用者永遠沒有」而且完全沒有徵兆。
         TataruPraiseOnRouteDone = (bool?)j["TataruPraiseOnRouteDone"] ?? true;
         TataruPraiseOnErrorStop = (bool?)j["TataruPraiseOnErrorStop"] ?? true;
+        // 缺鍵＝欄位初始值，既有使用者與新裝的人拿到同一個預設。
+        PathfindAllWaypoints = (bool?)j["PathfindAllWaypoints"] ?? true;
+        NoMountUnderDistance = (float?)j["NoMountUnderDistance"] ?? 20;
         // Intentionally ignore obsolete keys: Manual, GlobalManual, WasFlyingInManual,
         // LandDistance, PathFindCancellationTime, EmoteID, ActionID, ItemID, MobID, QuestID, ChatCommand, etc.
     }
@@ -170,6 +179,8 @@ public class GatherRouteDB : Configuration.Node {
             { "AutoGather", AutoGather },
             { "TataruPraiseOnRouteDone", TataruPraiseOnRouteDone },
             { "TataruPraiseOnErrorStop", TataruPraiseOnErrorStop },
+            { "PathfindAllWaypoints", PathfindAllWaypoints },
+            { "NoMountUnderDistance", NoMountUnderDistance },
         };
     }
 

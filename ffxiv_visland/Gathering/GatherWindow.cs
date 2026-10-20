@@ -223,6 +223,15 @@ public class GatherWindow : Window {
             if (ImGui.Checkbox("Teleport between zones".Loc(), ref RouteDB.TeleportBetweenZones))
                 RouteDB.NotifyModified();
 
+            if (ImGui.Checkbox("Pathfind every waypoint with vnavmesh".Loc(), ref RouteDB.PathfindAllWaypoints))
+                RouteDB.NotifyModified();
+            ImGuiComponents.HelpMarker("Moves between waypoints along a vnavmesh path even when the waypoint's own \"Pathfind?\" box is unticked, so the character walks around obstacles instead of running straight into them. The path still ends at the original waypoint. Falls back to running straight for that leg when vnavmesh isn't loaded, its navmesh isn't built yet, or no path is found.".Loc());
+
+            ImGui.SliderFloat("Don't mount for legs shorter than (yalms)".Loc(), ref RouteDB.NoMountUnderDistance, 0, 100);
+            if (ImGui.IsItemDeactivatedAfterEdit())
+                RouteDB.NotifyModified();
+            ImGuiComponents.HelpMarker("When a leg that would mount is shorter than this, walk it instead. Uses the length of the vnavmesh path, or the straight-line distance when moving straight (flying legs only skip the mount when a walkable path reaches the waypoint). Never dismounts you if you're already mounted. 0 turns this off.".Loc());
+
             if (ImGui.Checkbox("Have Tataru speak when a route finishes".Loc(), ref RouteDB.TataruPraiseOnRouteDone))
                 RouteDB.NotifyModified();
             ImGuiComponents.HelpMarker("Requires the TataruPraise plugin. Only fires when the route reaches its last waypoint without looping; stopping it yourself stays silent.".Loc());
@@ -468,8 +477,12 @@ public class GatherWindow : Window {
             if (ImGui.Checkbox("Pathfind?".Loc(), ref wp.Pathfind))
                 RouteDB.NotifyModified();
         }
-        if (!Service.Navmesh.IsEnabled)
+        if (!Service.Navmesh.IsEnabled) {
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) ImGui.SetTooltip("This features requires ?? to be installed.".Loc(NavmeshIPC.Name));
+        }
+        else if (RouteDB.PathfindAllWaypoints && !wp.Pathfind && ImGui.IsItemHovered()) {
+            ImGui.SetTooltip("\"Pathfind every waypoint with vnavmesh\" is on in the route settings, so this waypoint is pathfound anyway.".Loc());
+        }
 
         if (ImGuiComponents.IconButton(FontAwesomeIcon.UserPlus)) {
             if (wp.InteractWithOID == default) {

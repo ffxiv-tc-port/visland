@@ -1,6 +1,7 @@
 using Dalamud.Plugin.Ipc;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace visland.IPC;
@@ -14,6 +15,7 @@ public class NavmeshIPC {
     private readonly ICallGateSubscriber<bool> _navRebuild;
     private readonly ICallGateSubscriber<object> _navPathfindCancelAll;
     private readonly ICallGateSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>> _navPathfind;
+    private readonly ICallGateSubscriber<Vector3, Vector3, bool, CancellationToken, Task<List<Vector3>>> _navPathfindCancelable;
     private readonly ICallGateSubscriber<bool> _navIsAutoLoad;
     private readonly ICallGateSubscriber<bool, object> _navSetAutoLoad;
     private readonly ICallGateSubscriber<Vector3, float, float, Vector3?> _queryMeshNearestPoint;
@@ -38,6 +40,7 @@ public class NavmeshIPC {
         _navRebuild = Service.Interface.GetIpcSubscriber<bool>($"{Name}.Nav.Rebuild");
         _navPathfindCancelAll = Service.Interface.GetIpcSubscriber<object>($"{Name}.Nav.PathfindCancelAll");
         _navPathfind = Service.Interface.GetIpcSubscriber<Vector3, Vector3, bool, Task<List<Vector3>>>($"{Name}.Nav.Pathfind");
+        _navPathfindCancelable = Service.Interface.GetIpcSubscriber<Vector3, Vector3, bool, CancellationToken, Task<List<Vector3>>>($"{Name}.Nav.PathfindCancelable");
         _navIsAutoLoad = Service.Interface.GetIpcSubscriber<bool>($"{Name}.Nav.IsAutoLoad");
         _navSetAutoLoad = Service.Interface.GetIpcSubscriber<bool, object>($"{Name}.Nav.SetAutoLoad");
         _queryMeshNearestPoint = Service.Interface.GetIpcSubscriber<Vector3, float, float, Vector3?>($"{Name}.Query.Mesh.NearestPoint");
@@ -65,6 +68,9 @@ public class NavmeshIPC {
     public void PathfindCancelAll() { if (_navPathfindCancelAll.HasAction) _navPathfindCancelAll.InvokeAction(); }
     public Task<List<Vector3>>? Pathfind(Vector3 from, Vector3 to, bool fly = false)
         => _navPathfind.HasFunction ? _navPathfind.InvokeFunc(from, to, fly) : null;
+    /// <summary>取消只影響這一筆（Nav.PathfindCancelAll 會連別的插件的尋路一起取消）；舊版 vnavmesh 沒有這個端點時退回不可取消的 Nav.Pathfind。</summary>
+    public Task<List<Vector3>>? PathfindCancelable(Vector3 from, Vector3 to, bool fly, CancellationToken cancel)
+        => _navPathfindCancelable.HasFunction ? _navPathfindCancelable.InvokeFunc(from, to, fly, cancel) : Pathfind(from, to, fly);
     public bool IsAutoLoad() => _navIsAutoLoad.HasFunction && _navIsAutoLoad.InvokeFunc();
     public void SetAutoLoad(bool value) { if (_navSetAutoLoad.HasAction) _navSetAutoLoad.InvokeAction(value); }
 

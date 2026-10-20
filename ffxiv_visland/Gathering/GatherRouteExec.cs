@@ -13,6 +13,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Threading;
+using System.Threading.Tasks;
 using visland.Gathering.AutoGather;
 using visland.Helpers;
 using ObjectKind = Dalamud.Game.ClientState.Objects.Enums.ObjectKind;
@@ -79,6 +81,28 @@ public class GatherRouteExec : IDisposable {
     private readonly RouteStuckWatch _stuck = new();
     private GatherRouteDB.Waypoint? _stuckWaypoint;
 
+    /// <summary>往目前航點這一段的移動狀態；換航點、開始、停止都整份重設。只在 framework 執行緒讀寫。</summary>
+    private sealed class Leg {
+        public GatherRouteDB.Waypoint? Waypoint;
+        public RouteLegPlan.Mode LastMode = RouteLegPlan.Mode.Straight;
+        public Task<List<Vector3>>? Query;
+        public CancellationTokenSource? QueryCts;
+        public Vector3 QueryFrom;
+        public bool QueryFly;
+        /// <summary>坐騎飛行的航點還沒上坐騎時先算一條地面路徑，只用來判斷要不要上坐騎。</summary>
+        public bool QueryIsProbe;
+        public bool NavSent;
+        public Vector3 PathEnd;
+        public bool Straight;
+        /// <summary>true＝這一段不上坐騎直接走；null＝還沒判。</summary>
+        public bool? Walk;
+    }
+
+    private Leg _leg = new();
+    private string? _fallbackLogReason;
+    private long _fallbackLogAt;
+    private const long FallbackLogIntervalMs = 60_000;
+
     public GatherRouteExec() {
         RouteDB = Service.Config.Get<GatherRouteDB>();
         // These subscriptions drive "stop route on error": without them both CheckToDisable overloads are
@@ -111,6 +135,7 @@ public class GatherRouteExec : IDisposable {
         _manualMoveWaypoint = null;
         _stuck.Reset();
         _stuckWaypoint = null;
+        ResetLeg(null);
         _camera.Enabled = true;
         _movement.Enabled = true;
     }
@@ -125,6 +150,8 @@ public class GatherRouteExec : IDisposable {
         _manualMoveWaypoint = null;
         _stuck.Reset();
         _stuckWaypoint = null;
+        var navUsed = Pathfind || _leg.NavSent || _leg.Query != null;
+        ResetLeg(null);
         CurrentRoute.Waypoints.RemoveAll(x => x.IsPhantom);
         CurrentRoute = null;
         CurrentWaypoint = 0;
@@ -134,7 +161,7 @@ public class GatherRouteExec : IDisposable {
         _camera.Enabled = false;
         _movement.Enabled = false;
         CompatModule.RestoreChanges();
-        if (Pathfind)
+        if (navUsed)
             Service.Navmesh.StopMovement();
     }
 
@@ -183,6 +210,8 @@ public class GatherRouteExec : IDisposable {
         var toWaypoint = wp.Position - Player.Object!.Position;
         var needToGetCloser = toWaypoint.LengthSquared() > wp.Radius * wp.Radius;
         Pathfind = wp.Pathfind;
+        if (!ReferenceEquals(_leg.Waypoint, wp))
+            ResetLeg(wp);
 
         // check if phantom waypoints have invalid interact data (i.e. from being added outside the object table distance)
         if (wp.IsPhantom && wp.InteractWithOID == 0) {
@@ -231,18 +260,26 @@ public class GatherRouteExec : IDisposable {
             // skip current waypoint if target isn't there
             if (wp.IsNode && Player.DistanceTo(wp.Position) < 50 && !Service.ObjectTable.Any(x => x.BaseId == wp.InteractWithOID && x.IsTargetable)) {
                 Service.Log.Debug("Current waypoint target is not targetable, moving to next waypoint");
+                CancelLegQuery();
                 Service.Navmesh.StopMovement();
                 goto next;
             }
 
-            if (Pathfind && Service.Navmesh.IsEnabled && YieldToManualMovement(wp))
+            var mode = ChooseLegMode(wp);
+            if (mode == RouteLegPlan.Mode.WaitForNavmesh) {
+                SetState(State.WaitingForNavmesh);
+                return;
+            }
+            var nav = mode == RouteLegPlan.Mode.Navmesh;
+
+            if (nav && YieldToManualMovement(wp))
                 return;
 
-            if (HandleStuck(wp, toWaypoint.Length()))
+            if (HandleStuck(wp, toWaypoint.Length(), nav))
                 return;
 
             if (Service.Navmesh.IsRunning()) {
-                if (wp.Movement == GatherRouteDB.Movement.MountNoFly && !Player.Mounted) {
+                if (wp.Movement == GatherRouteDB.Movement.MountNoFly && !Player.Mounted && _leg.Walk != true) {
                     SetState(State.Mounting);
                     Player.Mount();
                     return;
@@ -252,49 +289,16 @@ public class GatherRouteExec : IDisposable {
                 return;
             }
 
-            if (wp.Movement != GatherRouteDB.Movement.Normal && !Player.Mounted && wp.Movement != GatherRouteDB.Movement.MountNoFly) {
-                SetState(State.Mounting);
-                Player.Mount();
-                return;
-            }
-
-            // MountNoFly 的上坐騎在下面（移動指令送出之後），這裡不送衝刺以免打斷騎乘。
-            if (wp.Movement != GatherRouteDB.Movement.MountNoFly)
-                Player.Sprint();
-
-            if (wp.Movement == GatherRouteDB.Movement.MountFly && Player.Mounted && !Player.InclusiveFlying) {
-                // TODO: improve, jump is not the best really...
-                SetState(State.Jumping);
-                Player.Jump();
-                return;
-            }
-
-            // 同一幀只決定一次狀態：邊走邊上坐騎時直接設 Mounting。
-            // 先設 Moving 再改 Mounting 會讓 SetState 的去重每幀失效，每幀多寫兩行 log。
-            var mountNow = wp.Movement == GatherRouteDB.Movement.MountNoFly && !Player.Mounted;
-            var moveState = mountNow ? State.Mounting : State.Moving;
-
-            if (Pathfind && Service.Navmesh.IsEnabled) {
-                if (!Service.Navmesh.IsReady() || Service.Navmesh.PathfindInProgress()) { SetState(State.WaitingForNavmesh); return; }
-                SetState(moveState);
-                _stuck.NoteSend();
-                Service.Navmesh.PathfindAndMoveTo(wp.Position, wp.Movement == GatherRouteDB.Movement.MountFly || Player.InclusiveFlying);
-            }
-            else {
-                SetState(moveState);
-                _movement.DesiredPosition = wp.Position;
-                _camera.SpeedH = _camera.SpeedV = 360.Degrees();
-                _camera.DesiredAzimuth = Angle.FromDirection(toWaypoint.X, toWaypoint.Z) + 180.Degrees();
-            }
-
-            if (mountNow)
-                Player.Mount();
-
+            if (nav)
+                MoveWithNavmesh(wp);
+            else
+                MoveStraight(wp, toWaypoint);
             return;
         }
 
         // force stop at destination to avoid a bug wherein you interact with the object and keep moving for a period of time
-        if (Pathfind && Service.Navmesh.IsRunning())
+        CancelLegQuery();
+        if ((Pathfind || _leg.NavSent) && Service.Navmesh.IsRunning())
             Service.Navmesh.Stop();
 
         if (!Player.Normal && wp.Movement == GatherRouteDB.Movement.Normal) {
@@ -441,6 +445,212 @@ public class GatherRouteExec : IDisposable {
         }
     }
 
+    private void ResetLeg(GatherRouteDB.Waypoint? wp) {
+        CancelLegQuery();
+        _leg = new Leg { Waypoint = wp };
+    }
+
+    // 只取消自己這一筆；被取消的工作不讀結果（取消在那裡會擲例外），丟著讓它自己收場。
+    private void CancelLegQuery() {
+        if (_leg.Query == null)
+            return;
+        if (!_leg.Query.IsCompleted)
+            _leg.QueryCts?.Cancel();
+        else
+            _ = _leg.Query.Exception;
+        _leg.Query = null;
+        _leg.QueryCts = null;
+    }
+
+    private RouteLegPlan.Mode ChooseLegMode(GatherRouteDB.Waypoint wp) {
+        var wanted = wp.Pathfind || RouteDB.PathfindAllWaypoints;
+        var installed = wanted && Service.Navmesh.IsEnabled;
+        var ready = installed && !_leg.Straight && Service.Navmesh.IsReady();
+        var mode = RouteLegPlan.Choose(wp.Pathfind, RouteDB.PathfindAllWaypoints, installed, ready, _leg.Straight);
+
+        if (mode == RouteLegPlan.Mode.Straight && wanted && !_leg.Straight)
+            LogFallback(installed ? "vnavmesh 的導航網格還沒建好（建好之後這一段會改用尋路）" : "沒有載入 vnavmesh");
+        // 直線移動中角色本來就在跑：換成尋路時不能拿那段速度當成「使用者在手動移動」。
+        if (mode == RouteLegPlan.Mode.Navmesh && _leg.LastMode != RouteLegPlan.Mode.Navmesh)
+            _manualMove.Reset();
+        _leg.LastMode = mode;
+        return mode;
+    }
+
+    private void LogFallback(string reason) {
+        var now = Environment.TickCount64;
+        if (reason == _fallbackLogReason && now - _fallbackLogAt < FallbackLogIntervalMs)
+            return;
+        _fallbackLogReason = reason;
+        _fallbackLogAt = now;
+        Service.Log.Information($"[路線尋路] {reason}：航點 #{CurrentWaypoint} 先用直線移動。");
+    }
+
+    private void LatchStraight(GatherRouteDB.Waypoint wp, string reason) {
+        CancelLegQuery();
+        _leg.Straight = true;
+        _leg.NavSent = false;
+        Service.Log.Information($"[路線尋路] 航點 #{CurrentWaypoint}（{wp.Position:F1}）：{reason}，這一段剩下的改用直線移動。目前位置 {Player.Position:F1}");
+    }
+
+    private void DecideWalk(GatherRouteDB.Waypoint wp, float length, bool reachable, string source) {
+        if (_leg.Walk != null || Player.Mounted || !wp.NeedsMount)
+            return;
+        _leg.Walk = reachable && RouteLegPlan.SkipMount(length, RouteDB.NoMountUnderDistance);
+        if (_leg.Walk == true)
+            Service.Log.Information($"[路線尋路] 航點 #{CurrentWaypoint}：這一段 {length:F1} 米（{source}），短於 {RouteDB.NoMountUnderDistance:F0} 米，不上坐騎直接走。");
+    }
+
+    /// <summary>直線移動（原本沒有尋路時的走法）。只在 framework 執行緒、路線的移動分支呼叫。</summary>
+    private void MoveStraight(GatherRouteDB.Waypoint wp, Vector3 toWaypoint) {
+        // 坐騎飛行的航點可能在半空中，直線距離短不代表走得到：直線移動只對地面坐騎套「短距離不上坐騎」。
+        if (wp.Movement == GatherRouteDB.Movement.MountNoFly)
+            DecideWalk(wp, toWaypoint.Length(), true, "直線距離");
+
+        if (wp.Movement == GatherRouteDB.Movement.MountFly && !Player.Mounted && _leg.Walk != true) {
+            SetState(State.Mounting);
+            Player.Mount();
+            return;
+        }
+
+        // MountNoFly 的上坐騎在下面（移動指令送出之後），這裡不送衝刺以免打斷騎乘。
+        if (wp.Movement != GatherRouteDB.Movement.MountNoFly || _leg.Walk == true)
+            Player.Sprint();
+
+        if (wp.Movement == GatherRouteDB.Movement.MountFly && Player.Mounted && !Player.InclusiveFlying) {
+            // TODO: improve, jump is not the best really...
+            SetState(State.Jumping);
+            Player.Jump();
+            return;
+        }
+
+        // 同一幀只決定一次狀態：邊走邊上坐騎時直接設 Mounting（先設 Moving 再改會讓 SetState 去重失效、每幀多寫兩行 log）。
+        var mountNow = wp.Movement == GatherRouteDB.Movement.MountNoFly && !Player.Mounted && _leg.Walk != true;
+        SetState(mountNow ? State.Mounting : State.Moving);
+        _movement.DesiredPosition = wp.Position;
+        _camera.SpeedH = _camera.SpeedV = 360.Degrees();
+        _camera.DesiredAzimuth = Angle.FromDirection(toWaypoint.X, toWaypoint.Z) + 180.Degrees();
+        if (mountNow)
+            Player.Mount();
+    }
+
+    /// <summary>vnavmesh 尋路移動：自己算路（拿得到路徑長度判斷要不要上坐騎）再交給 Path.MoveTo。只在 framework 執行緒、vnavmesh 沒在走路徑時呼叫。</summary>
+    private void MoveWithNavmesh(GatherRouteDB.Waypoint wp) {
+        if (_leg.Query != null) {
+            if (!_leg.Query.IsCompleted) {
+                SetState(State.Pathfinding);
+                return;
+            }
+            ConsumeLegQuery(wp);
+            return;
+        }
+
+        if (_leg.NavSent) {
+            if (RouteLegPlan.AfterPathStopped(Player.Position, _leg.PathEnd) == RouteLegPlan.AfterStop.Straight) {
+                LatchStraight(wp, $"尋路路徑走完了，終點離航點還有 {Vector3.Distance(_leg.PathEnd, wp.Position):F1} 米（半徑 {wp.Radius:F1}）");
+                return;
+            }
+            _leg.NavSent = false;
+        }
+
+        if (wp.Movement == GatherRouteDB.Movement.MountFly && !Player.Mounted && _leg.Walk != true) {
+            if (_leg.Walk == null && RouteDB.NoMountUnderDistance > 0 && !Player.InclusiveFlying) {
+                StartLegQuery(wp, false, true);
+                return;
+            }
+            SetState(State.Mounting);
+            Player.Mount();
+            return;
+        }
+
+        if (wp.Movement == GatherRouteDB.Movement.MountFly && Player.Mounted && !Player.InclusiveFlying) {
+            SetState(State.Jumping);
+            Player.Jump();
+            return;
+        }
+
+        StartLegQuery(wp, Player.InclusiveFlying || wp.Movement == GatherRouteDB.Movement.MountFly && Player.Mounted, false);
+    }
+
+    private void StartLegQuery(GatherRouteDB.Waypoint wp, bool fly, bool probe) {
+        var from = Player.Position;
+        var cts = new CancellationTokenSource();
+        Task<List<Vector3>>? query;
+        string? error = null;
+        try {
+            query = Service.Navmesh.PathfindCancelable(from, wp.Position, fly, cts.Token);
+        }
+        catch (Exception ex) {
+            query = null;
+            error = $"{ex.GetType().Name}: {ex.Message}";
+        }
+
+        if (query == null) {
+            if (probe)
+                _leg.Walk = false;
+            else
+                LatchStraight(wp, $"呼叫不到 vnavmesh 的尋路介面（{error ?? "端點不存在"}）");
+            return;
+        }
+
+        if (!probe)
+            _stuck.NoteSend();
+        _leg.Query = query;
+        _leg.QueryCts = cts;
+        _leg.QueryFrom = from;
+        _leg.QueryFly = fly;
+        _leg.QueryIsProbe = probe;
+        SetState(State.Pathfinding);
+    }
+
+    private void ConsumeLegQuery(GatherRouteDB.Waypoint wp) {
+        var query = _leg.Query!;
+        var probe = _leg.QueryIsProbe;
+        var fly = _leg.QueryFly;
+        var from = _leg.QueryFrom;
+        _leg.Query = null;
+        _leg.QueryCts = null;
+
+        // 被取消（換網格、Nav.PathfindCancelAll）是正常收場：下一幀重算。
+        if (query.IsCanceled)
+            return;
+
+        List<Vector3>? path = null;
+        string? failure = null;
+        if (query.IsFaulted)
+            failure = query.Exception?.InnerException?.Message ?? "未知錯誤";
+        else if ((path = query.Result) is not { Count: > 0 })
+            failure = "路徑是空的";
+
+        if (failure != null) {
+            if (probe)
+                _leg.Walk = false;
+            else
+                LatchStraight(wp, $"尋路失敗（{failure}）");
+            return;
+        }
+
+        var player = Player.Position;
+        if (RouteLegPlan.ResultStale(from, player))
+            return;
+
+        var length = RouteLegPlan.LegLength(player, path, wp.Position);
+        DecideWalk(wp, length, wp.Movement != GatherRouteDB.Movement.MountFly || RouteLegPlan.PathReaches(path, wp.Position, wp.Radius), "尋路路徑");
+        // 探路的結果是要上坐騎飛：丟掉地面路徑，下一幀走上坐騎、起飛、重新算飛行路徑。
+        if (probe && _leg.Walk != true)
+            return;
+
+        if (!Player.Mounted && (wp.Movement == GatherRouteDB.Movement.Normal || _leg.Walk == true))
+            Player.Sprint();
+        var mountNow = wp.Movement == GatherRouteDB.Movement.MountNoFly && !Player.Mounted && _leg.Walk != true;
+        SetState(mountNow ? State.Mounting : State.Moving);
+        Service.Navmesh.MoveTo(path!, fly);
+        _leg.NavSent = true;
+        _leg.PathEnd = path![^1];
+        if (mountNow)
+            Player.Mount();
+    }
+
     /// <summary>回 true＝使用者在手動移動（或正在確認是不是），這一幀不重送路徑。只在 framework 執行緒、尋路模式的移動分支呼叫。</summary>
     private bool YieldToManualMovement(GatherRouteDB.Waypoint wp) {
         if (!ReferenceEquals(wp, _manualMoveWaypoint)) {
@@ -448,7 +658,7 @@ public class GatherRouteExec : IDisposable {
             _manualMoveWaypoint = wp;
         }
 
-        var navigating = Service.Navmesh.IsRunning() || Service.Navmesh.PathfindInProgress();
+        var navigating = _leg.Query != null || Service.Navmesh.IsRunning() || Service.Navmesh.PathfindInProgress();
         var busy = Player.Mounting || Player.IsJumping || Player.IsCasting
             || Service.Condition[ConditionFlag.BetweenAreas] || Service.Condition[ConditionFlag.BetweenAreas51];
         var player = Player.Position;
@@ -472,15 +682,14 @@ public class GatherRouteExec : IDisposable {
     }
 
     /// <summary>回 true＝這一幀已經處理卡住（重找路、跳躍或停下路線）。只在 framework 執行緒、路線的移動分支呼叫。</summary>
-    private bool HandleStuck(GatherRouteDB.Waypoint wp, float distanceToWaypoint) {
+    private bool HandleStuck(GatherRouteDB.Waypoint wp, float distanceToWaypoint, bool pathfindMode) {
         if (!ReferenceEquals(wp, _stuckWaypoint)) {
             _stuck.Reset();
             _stuckWaypoint = wp;
         }
 
-        var pathfindMode = Pathfind && Service.Navmesh.IsEnabled;
         // 只在自己的移動應該推著角色走時計時：算路中、還要先上坐騎的幀不算。
-        var needsMountFirst = wp.Movement != GatherRouteDB.Movement.Normal && !Player.Mounted && wp.Movement != GatherRouteDB.Movement.MountNoFly;
+        var needsMountFirst = wp.Movement == GatherRouteDB.Movement.MountFly && !Player.Mounted && _leg.Walk != true;
         var counting = pathfindMode ? Service.Navmesh.IsRunning() : !needsMountFirst;
         var action = _stuck.Observe(Player.Position, distanceToWaypoint, counting, Environment.TickCount64);
         if (action == RouteStuckWatch.Action.None)
@@ -490,6 +699,8 @@ public class GatherRouteExec : IDisposable {
         switch (action) {
             case RouteStuckWatch.Action.Repath when pathfindMode:
                 Service.Log.Information($"[路線卡住] {where}：{RouteStuckWatch.NoProgressMs / 1000} 秒內沒有前進 {RouteStuckWatch.ProgressDistance} 米（或重送 {RouteStuckWatch.MaxSendsWithoutProgress} 次沒有進展），停下重新找路。");
+                CancelLegQuery();
+                _leg.NavSent = false;
                 Service.Navmesh.StopMovement();
                 return true;
             case RouteStuckWatch.Action.Repath:
