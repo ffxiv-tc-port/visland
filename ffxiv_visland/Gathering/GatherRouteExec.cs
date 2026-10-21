@@ -99,6 +99,8 @@ public class GatherRouteExec : IDisposable {
     }
 
     private Leg _leg = new();
+    // 交給 vnavmesh 的路徑可能還在走：跨航點保留（換段會重設 _leg），只在確定停掉或看到 vnavmesh 已閒置時清。
+    private bool _ownNavPath;
     private string? _fallbackLogReason;
     private long _fallbackLogAt;
     private const long FallbackLogIntervalMs = 60_000;
@@ -150,7 +152,6 @@ public class GatherRouteExec : IDisposable {
         _manualMoveWaypoint = null;
         _stuck.Reset();
         _stuckWaypoint = null;
-        var navUsed = Pathfind || _leg.NavSent || _leg.Query != null;
         ResetLeg(null);
         CurrentRoute.Waypoints.RemoveAll(x => x.IsPhantom);
         CurrentRoute = null;
@@ -161,8 +162,7 @@ public class GatherRouteExec : IDisposable {
         _camera.Enabled = false;
         _movement.Enabled = false;
         CompatModule.RestoreChanges();
-        if (navUsed)
-            Service.Navmesh.StopMovement();
+        StopOwnNavPath();
     }
 
     public unsafe void Update(IFramework _) {
@@ -172,8 +172,10 @@ public class GatherRouteExec : IDisposable {
         var mountWhileMoving = CurrentRoute != null && CurrentWaypoint < CurrentRoute.Waypoints.Count ? CurrentRoute.Waypoints[CurrentWaypoint] : null;
         _movement.DesiredPosition = CurrentState == State.Mounting && mountWhileMoving?.Movement == GatherRouteDB.Movement.MountNoFly ? mountWhileMoving.Position : Player.Object?.Position ?? new();
 
-        if (Paused && Service.Navmesh.IsRunning())
+        if (Paused && Service.Navmesh.IsRunning()) {
             Service.Navmesh.Stop();
+            _ownNavPath = false;
+        }
 
         if (Paused && RouteDB.AutoRetainerIntegration && Service.Retainers.Finished && Service.Retainers.GetPreferredCharacter() == Player.CID) {
             Service.AutoRetainer.SetMultiEnabled(false);
@@ -261,7 +263,7 @@ public class GatherRouteExec : IDisposable {
             if (wp.IsNode && Player.DistanceTo(wp.Position) < 50 && !Service.ObjectTable.Any(x => x.BaseId == wp.InteractWithOID && x.IsTargetable)) {
                 Service.Log.Debug("Current waypoint target is not targetable, moving to next waypoint");
                 CancelLegQuery();
-                Service.Navmesh.StopMovement();
+                StopOwnNavPath();
                 goto next;
             }
 
@@ -298,8 +300,7 @@ public class GatherRouteExec : IDisposable {
 
         // force stop at destination to avoid a bug wherein you interact with the object and keep moving for a period of time
         CancelLegQuery();
-        if ((Pathfind || _leg.NavSent) && Service.Navmesh.IsRunning())
-            Service.Navmesh.Stop();
+        StopOwnNavPath();
 
         if (!Player.Normal && wp.Movement == GatherRouteDB.Movement.Normal) {
             SetState(State.Dismounting);
@@ -450,6 +451,14 @@ public class GatherRouteExec : IDisposable {
         _leg = new Leg { Waypoint = wp };
     }
 
+    // 只停自己交給 vnavmesh 的路徑：Path.Stop 會停掉任何人送的路徑，不是自己的就不碰。
+    // 自己的算路一律走 CancelLegQuery，不送會取消別的插件算路的 Nav.PathfindCancelAll。
+    private void StopOwnNavPath() {
+        if (_ownNavPath && Service.Navmesh.IsRunning())
+            Service.Navmesh.Stop();
+        _ownNavPath = false;
+    }
+
     // 只取消自己這一筆；被取消的工作不讀結果（取消在那裡會擲例外），丟著讓它自己收場。
     private void CancelLegQuery() {
         if (_leg.Query == null)
@@ -536,6 +545,8 @@ public class GatherRouteExec : IDisposable {
 
     /// <summary>vnavmesh 尋路移動：自己算路（拿得到路徑長度判斷要不要上坐騎）再交給 Path.MoveTo。只在 framework 執行緒、vnavmesh 沒在走路徑時呼叫。</summary>
     private void MoveWithNavmesh(GatherRouteDB.Waypoint wp) {
+        // 呼叫端已判過 vnavmesh 沒在走路徑：之前交出去的那條已經走完或被停了，之後出現的路徑不是自己的。
+        _ownNavPath = false;
         if (_leg.Query != null) {
             if (!_leg.Query.IsCompleted) {
                 SetState(State.Pathfinding);
@@ -645,6 +656,7 @@ public class GatherRouteExec : IDisposable {
         var mountNow = wp.Movement == GatherRouteDB.Movement.MountNoFly && !Player.Mounted && _leg.Walk != true;
         SetState(mountNow ? State.Mounting : State.Moving);
         Service.Navmesh.MoveTo(path!, fly);
+        _ownNavPath = true;
         _leg.NavSent = true;
         _leg.PathEnd = path![^1];
         if (mountNow)
@@ -701,7 +713,7 @@ public class GatherRouteExec : IDisposable {
                 Service.Log.Information($"[路線卡住] {where}：{RouteStuckWatch.NoProgressMs / 1000} 秒內沒有前進 {RouteStuckWatch.ProgressDistance} 米（或重送 {RouteStuckWatch.MaxSendsWithoutProgress} 次沒有進展），停下重新找路。");
                 CancelLegQuery();
                 _leg.NavSent = false;
-                Service.Navmesh.StopMovement();
+                StopOwnNavPath();
                 return true;
             case RouteStuckWatch.Action.Repath:
             case RouteStuckWatch.Action.Jump:
