@@ -172,10 +172,9 @@ public class GatherRouteExec : IDisposable {
         var mountWhileMoving = CurrentRoute != null && CurrentWaypoint < CurrentRoute.Waypoints.Count ? CurrentRoute.Waypoints[CurrentWaypoint] : null;
         _movement.DesiredPosition = CurrentState == State.Mounting && mountWhileMoving?.Movement == GatherRouteDB.Movement.MountNoFly ? mountWhileMoving.Position : Player.Object?.Position ?? new();
 
-        if (Paused && Service.Navmesh.IsRunning()) {
-            Service.Navmesh.Stop();
-            _ownNavPath = false;
-        }
+        // 暫停只停自己交出去的路徑（例：為 AutoRetainer 暫停時，別的插件正用 vnavmesh 走去傳喚鈴）。
+        if (Paused)
+            StopOwnNavPath();
 
         if (Paused && RouteDB.AutoRetainerIntegration && Service.Retainers.Finished && Service.Retainers.GetPreferredCharacter() == Player.CID) {
             Service.AutoRetainer.SetMultiEnabled(false);
