@@ -101,6 +101,7 @@ public class GatherRouteExec : IDisposable {
     private Leg _leg = new();
     // 交給 vnavmesh 的路徑可能還在走：跨航點保留（換段會重設 _leg），只在確定停掉或看到 vnavmesh 已閒置時清。
     private bool _ownNavPath;
+    private readonly PathInterruptLoop _interruptLoop = new();
     private string? _fallbackLogReason;
     private long _fallbackLogAt;
     private const long FallbackLogIntervalMs = 60_000;
@@ -133,6 +134,7 @@ public class GatherRouteExec : IDisposable {
         route.Waypoints[waypoint].Pathfind = pathfind;
         Pathfind = pathfind;
         _repairAttempts = 0;
+        _interruptLoop.Reset();
         _manualMove.Reset();
         _manualMoveWaypoint = null;
         _stuck.Reset();
@@ -170,7 +172,9 @@ public class GatherRouteExec : IDisposable {
         // MountNoFly 是邊走邊上坐騎，所以上坐騎的那幾幀目標點要留在航點上；
         // 其餘情況維持「目標＝自己現在的位置」＝原地不動。
         var mountWhileMoving = CurrentRoute != null && CurrentWaypoint < CurrentRoute.Waypoints.Count ? CurrentRoute.Waypoints[CurrentWaypoint] : null;
-        _movement.DesiredPosition = CurrentState == State.Mounting && mountWhileMoving?.Movement == GatherRouteDB.Movement.MountNoFly ? mountWhileMoving.Position : Player.Object?.Position ?? new();
+        // 尋路段不推：vnavmesh 的路徑自己會走，visland 再寫一份前進會被它當成玩家輸入而取消路徑。
+        var walkToWaypoint = CurrentState == State.Mounting && mountWhileMoving?.Movement == GatherRouteDB.Movement.MountNoFly && RouteLegPlan.InjectMountWalk(_leg.LastMode);
+        _movement.DesiredPosition = walkToWaypoint ? mountWhileMoving!.Position : Player.Object?.Position ?? new();
 
         // 暫停只停自己交出去的路徑（例：為 AutoRetainer 暫停時，別的插件正用 vnavmesh 走去傳喚鈴）。
         if (Paused)
@@ -561,6 +565,9 @@ public class GatherRouteExec : IDisposable {
                 return;
             }
             _leg.NavSent = false;
+            if (_interruptLoop.Note(Environment.TickCount64))
+                Service.Log.Information($"[路線尋路] 航點 #{CurrentWaypoint}：自己送出的路徑 {PathInterruptLoop.WindowMs / 1000} 秒內被中途停掉 {PathInterruptLoop.Threshold} 次以上（狀態 {CurrentState}，目前位置 {Player.Position:F1}）。"
+                    + "沒有在手動操作的話，請檢查是否有別的插件在送移動輸入（vnavmesh 的「玩家輸入移動時取消目前路徑」會把它當成手動移動）。");
         }
 
         if (wp.Movement == GatherRouteDB.Movement.MountFly && !Player.Mounted && _leg.Walk != true) {

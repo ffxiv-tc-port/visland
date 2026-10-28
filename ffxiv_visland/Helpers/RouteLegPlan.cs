@@ -69,6 +69,12 @@ public static class RouteLegPlan
     public static AfterStop AfterPathStopped(Vector3 player, Vector3 pathEnd)
         => Vector3.Distance(player, pathEnd) <= PathEndNear ? AfterStop.Straight : AfterStop.Resend;
 
+    /// <summary>
+    /// 邊走邊上坐騎時，要不要由 visland 自己的移動覆寫把角色推向航點。
+    /// 尋路段走 vnavmesh 的路徑：visland 再寫一份前進，會被 vnavmesh 當成玩家輸入而取消路徑。
+    /// </summary>
+    public static bool InjectMountWalk(Mode lastMode) => lastMode != Mode.Navmesh;
+
     public static bool ResultStale(Vector3 requestedFrom, Vector3 player)
         => Vector3.Distance(requestedFrom, player) > StaleStart;
 }
