@@ -43,6 +43,7 @@ public class Service {
     // 缺料總表的資料層。倉庫策略與出口保留量都必須讀同一份「缺口」定義,
     // 所以共用一個實例 —— 各自 new 一個的話會各自節流,同一瞬間可能給出不同的數字。
     public static Island.MaterialLedger Materials { get; private set; } = null!;
+    public static Island.IslandNodeScan IslandScan { get; private set; } = null!;
 
     public static void Init(IDalamudPluginInterface pi) {
         try {
@@ -61,6 +62,7 @@ public class Service {
             IslandTour = new Island.IslandTour();
             Visland = new VislandIPC();
             Materials = new Island.MaterialLedger();
+            IslandScan = new Island.IslandNodeScan();
         }
         catch (Exception ex) {
             // Rethrow so Dalamud reports a clean load failure instead of leaving the statics above
@@ -72,6 +74,7 @@ public class Service {
 
     public static void Dispose() {
         Helpers.AddonPressGuard.ForceTeardown();
+        IslandScan?.Dispose();
         IslandTour?.Dispose();
         RouteExec.Dispose();
         TaskManager.Dispose();

@@ -11,9 +11,33 @@ namespace visland.Gathering;
 public unsafe class GatherDebug(GatherRouteExec exec) {
     private readonly GatherRouteExec exec = exec;
 
+    // 放在 Player.Available 閘門之前：掃描開著時，停止鈕任何時候都要按得到。
+    private static void DrawIslandScan() {
+        var scan = Service.IslandScan;
+        Utils.DrawSection("Island Gathering Point Scan".Loc(), ImGuiColors.ParsedGold);
+        ImGui.TextWrapped("Once per second, records every island gathering point in range (name, position, whether it can be gathered) and which materials each gather added to your pouch. Read-only; it never moves or gathers for you. Walk or run your routes around the island while it is on, then stop it. The result is saved as a separate file in the plugin config folder; your routes and settings are not touched.".Loc());
+        if (ImGui.Button(scan.Running ? "Stop Scan".Loc() : "Start Scan".Loc())) {
+            if (scan.Running)
+                scan.Stop();
+            else
+                scan.Start();
+        }
+        ImGui.SameLine();
+        ImGui.TextUnformatted(scan.Running ? "Scanning".Loc() : "Off".Loc());
+        if (scan.Running && Player.Territory != 1055)
+            ImGui.TextDisabled("Not on your island - the scan waits until you are.".Loc());
+        if (scan.FileName != null) {
+            ImGui.TextUnformatted("Points seen: ??, gathers recorded: ??, pouch gains with no point nearby: ??".Loc(scan.NodeCount, scan.YieldCount, scan.Unattributed));
+            ImGui.TextUnformatted("File: ??".Loc(scan.FileName));
+        }
+        if (scan.LastSaveError != null)
+            ImGui.TextColored(ImGuiColors.DalamudRed, "Save failed: ??".Loc(scan.LastSaveError));
+    }
+
     public void Draw() {
         using var child = ImRaii.Child("child");
         if (!child) return;
+        DrawIslandScan();
         if (!Player.Available) return;
 
         if (exec.RouteDB.AutoRetainerIntegration) {
