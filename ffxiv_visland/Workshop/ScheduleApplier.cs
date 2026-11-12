@@ -36,7 +36,8 @@ internal class ScheduleApplier {
         var agentData = agent->Data;
         var cycle = agentData->CycleDisplayed;
         var minHour = cycle == agentData->CycleInProgress ? agentData->HourSinceCycleStart : 0;
-        ApplyRecommendation(cycle, rec, minHour);
+        var scheduledCount = ApplyRecommendation(cycle, rec, minHour);
+        Service.Log.Information($"Scheduled {scheduledCount} craft(s) into cycle {cycle + 1}");
         WorkshopUtils.ResetCurrentCycleToRefreshUI();
     }
 
@@ -140,6 +141,7 @@ internal class ScheduleApplier {
         if (appliedSlots == 0)
             throw new Exception("No cycles were applied");
 
+        Service.Log.Information($"Scheduled {appliedSlots} craft(s) across {appliedCycles} cycle(s)");
         WorkshopUtils.ResetCurrentCycleToRefreshUI();
         if (skippedMask != 0 || cycleInProgress >= 0 && hourSinceStart > 0)
             Service.ChatGui.Print("Applied ?? craft(s) across ?? cycle(s)".Loc(appliedSlots, appliedCycles), "visland");

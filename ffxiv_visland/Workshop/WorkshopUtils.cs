@@ -48,7 +48,8 @@ public static unsafe class WorkshopUtils {
             Service.Log.Information($"Not adding schedule ({objId} @ {startingHour}/{cycle}/{workshop}): MJIManager unavailable");
             return;
         }
-        Service.Log.Info($"Adding schedule: {objId} @ {startingHour}/{cycle}/{workshop}");
+        // 一次套用整週會連呼叫上百次;逐筆明細只進 Debug,彙總由呼叫端寫一行。
+        Service.Log.Debug($"Adding schedule: {objId} @ {startingHour}/{cycle}/{workshop}");
         mji->ScheduleCraft((ushort)objId, (byte)((startingHour + 17) % 24), (byte)cycle, (byte)workshop);
     }
 
