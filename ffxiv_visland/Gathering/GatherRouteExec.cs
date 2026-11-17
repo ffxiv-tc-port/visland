@@ -124,7 +124,13 @@ public class GatherRouteExec : IDisposable {
         _movement.Dispose();
     }
 
+    // 契約：航點索引不在範圍內（含空路線）＝不開始、不動目前狀態，只記一行 Information；不擲例外（IPC、指令、Update 都會呼叫）。
     public void Start(GatherRouteDB.Route route, int waypoint, bool continueToNext, bool loopAtEnd, bool pathfind = false) {
+        var count = route.Waypoints?.Count(w => !w.IsPhantom) ?? 0;
+        if (waypoint < 0 || waypoint >= count) {
+            Service.Log.Information($"[visland] 路線「{route.Name}」沒有第 {waypoint + 1} 個航點（共 {count} 個），不開始");
+            return;
+        }
         CurrentState = State.None;
         CurrentRoute = route;
         route.Waypoints.RemoveAll(x => x.IsPhantom);
@@ -335,7 +341,7 @@ public class GatherRouteExec : IDisposable {
                 var route = RouteDB.Routes.Find(r => r.Name == wp.RouteName);
                 if (route != null) {
                     Finish();
-                    Start(route, 0, true, false, route.Waypoints[0].Pathfind);
+                    Start(route, 0, true, false, route.Waypoints.FirstOrDefault()?.Pathfind ?? false);
                     return;
                 }
                 break;

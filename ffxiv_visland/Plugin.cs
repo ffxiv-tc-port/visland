@@ -103,10 +103,10 @@ public sealed class Plugin : IDalamudPlugin {
                 case "execonce":
                     ExecuteCommand(string.Join(" ", args.Skip(1)), true);
                     break;
-                case "exectemp":
+                case "exectemp" when args.Length > 1:
                     ExecuteTempRoute(args[1], false);
                     break;
-                case "exectemponce":
+                case "exectemponce" when args.Length > 1:
                     ExecuteTempRoute(args[1], true);
                     break;
             }
@@ -134,6 +134,6 @@ public sealed class Plugin : IDalamudPlugin {
     internal void ExecuteCommand(string name, bool once) {
         var route = Service.RouteExec.RouteDB.Routes.Find(r => r.Name == name);
         if (route != null)
-            Service.RouteExec.Start(route, 0, true, !once, route.Waypoints.ElementAt(0).Pathfind);
+            Service.RouteExec.Start(route, 0, true, !once, route.Waypoints.FirstOrDefault()?.Pathfind ?? false);
     }
 }
