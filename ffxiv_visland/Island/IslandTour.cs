@@ -50,6 +50,7 @@ public sealed unsafe class IslandTour : IDisposable {
     private const long CloseTimeoutMs = 5000;
     private const long AfterCloseTimeoutMs = 10_000;
     private const float FallbackInteractDistance = 4f;
+    private const float OwnPathMatchRadius = 20f;
 
     private readonly IslandTourConfig _config;
     private readonly IslandTourInterlocks _locks = new();
@@ -68,6 +69,7 @@ public sealed unsafe class IslandTour : IDisposable {
     private bool _picked;
     private bool _destIsLive;
     private Vector3 _dest;
+    private Vector3? _issuedTarget;
     private long _windowOpenSinceMs;
     private int _reopens;
 
@@ -134,6 +136,7 @@ public sealed unsafe class IslandTour : IDisposable {
             Service.Navmesh.StopMovement();
         _locks.Release();
         _phase = Phase.Idle;
+        _issuedTarget = null;
         Status = string.Empty;
         LastResult = $"巡島停止：{reason}";
         Service.Log.Information($"[巡島] 停止：{reason}");
@@ -236,6 +239,7 @@ public sealed unsafe class IslandTour : IDisposable {
         _picked = false;
         _windowOpenSinceMs = 0;
         _reopens = 0;
+        _issuedTarget = null;
         var kind = Kind;
         var npc = FindNpc(kind);
         Vector3 dest;
@@ -269,6 +273,7 @@ public sealed unsafe class IslandTour : IDisposable {
             Fail($"{Here}：vnavmesh 沒有接受移動請求。");
             return;
         }
+        _issuedTarget = target;
         Player.Sprint();
         Enter(Phase.Moving, "移動中");
     }
@@ -316,7 +321,9 @@ public sealed unsafe class IslandTour : IDisposable {
             return;
         }
         if (Service.Navmesh.IsRunning()) {
-            Service.Navmesh.Stop();
+            // 別的插件在這幾秒內送的路徑不停，等它走完或到逾時失敗。
+            if (IsOwnPathRunning())
+                Service.Navmesh.Stop();
             return;
         }
         if (Player.Mounted) {
@@ -335,6 +342,25 @@ public sealed unsafe class IslandTour : IDisposable {
         ts->InteractWithObject((GameObject*)npc.Address, false);
         Service.Log.Information($"[巡島] {Here}：和{npc.Name.TextValue}說話");
         Enter(Phase.Dialog, $"和{npc.Name.TextValue}說話");
+    }
+
+    // 這一站自己送過移動、而且目前路徑的終點（只比 X/Z）落在送出的目的地附近才算自己的；問不到 vnavmesh＝不是。
+    private bool IsOwnPathRunning() {
+        if (_issuedTarget is not { } dest)
+            return false;
+        List<Vector3>? waypoints;
+        try {
+            waypoints = Service.Navmesh.ListWaypoints();
+        }
+        catch (Exception) {
+            return false;
+        }
+        if (waypoints == null || waypoints.Count == 0)
+            return true; // 舊版 vnavmesh 沒有這個端點：信自己的發起紀錄
+        var end = waypoints[^1];
+        var dx = end.X - dest.X;
+        var dz = end.Z - dest.Z;
+        return dx * dx + dz * dz <= OwnPathMatchRadius * OwnPathMatchRadius;
     }
 
     private void UpdateDialog() {
@@ -470,6 +496,7 @@ public sealed unsafe class IslandTour : IDisposable {
         var seconds = (Now - _tourStartMs) / 1000;
         _locks.Release();
         _phase = Phase.Idle;
+        _issuedTarget = null;
         Status = string.Empty;
         LastResult = $"巡島完成：走了 {_plan.Count} 站，{seconds} 秒。";
         Service.Log.Information($"[巡島] 完成：走了 {_plan.Count} 站，用時 {seconds} 秒");

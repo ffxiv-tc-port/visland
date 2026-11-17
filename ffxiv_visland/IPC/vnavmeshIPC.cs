@@ -32,6 +32,7 @@ public class NavmeshIPC {
     private readonly ICallGateSubscriber<float, object> _pathSetTolerance;
     private readonly ICallGateSubscriber<Vector3, bool, bool> _pathfindAndMoveTo;
     private readonly ICallGateSubscriber<bool> _pathfindInProgress;
+    private readonly ICallGateSubscriber<List<Vector3>> _pathListWaypoints;
 
     public NavmeshIPC() {
         _navIsReady = Service.Interface.GetIpcSubscriber<bool>($"{Name}.Nav.IsReady");
@@ -57,6 +58,7 @@ public class NavmeshIPC {
         _pathSetTolerance = Service.Interface.GetIpcSubscriber<float, object>($"{Name}.Path.SetTolerance");
         _pathfindAndMoveTo = Service.Interface.GetIpcSubscriber<Vector3, bool, bool>($"{Name}.SimpleMove.PathfindAndMoveTo");
         _pathfindInProgress = Service.Interface.GetIpcSubscriber<bool>($"{Name}.SimpleMove.PathfindInProgress");
+        _pathListWaypoints = Service.Interface.GetIpcSubscriber<List<Vector3>>($"{Name}.Path.ListWaypoints");
     }
 
     public bool IsEnabled => _navIsReady.HasFunction;
@@ -92,6 +94,8 @@ public class NavmeshIPC {
 
     public bool PathfindAndMoveTo(Vector3 pos, bool fly) => _pathfindAndMoveTo.HasFunction && _pathfindAndMoveTo.InvokeFunc(pos, fly);
     public bool PathfindInProgress() => _pathfindInProgress.HasFunction && _pathfindInProgress.InvokeFunc();
+    /// <summary>目前路徑剩下的路徑點（最後一個＝終點）；端點不存在回 null。</summary>
+    public List<Vector3>? ListWaypoints() => _pathListWaypoints.HasFunction ? _pathListWaypoints.InvokeFunc() : null;
 
     /// <summary>停掉自己送出的移動：還在算的尋路先取消（只送 Path.Stop 攔不住算完後才開走的那一筆），再停已在走的路徑。</summary>
     public void StopMovement() {
