@@ -18,7 +18,7 @@ using static visland.Gathering.GatherRouteDB;
 
 namespace visland.Gathering;
 
-public class GatherWindow : Window {
+public class GatherWindow : Window, IDisposable {
     private readonly UITree _tree = new();
     private readonly List<System.Action> _postDraw = [];
 
@@ -52,6 +52,32 @@ public class GatherWindow : Window {
         // 裡初始化的 —— 用欄位初始式會在建構函式本體之前跑,順序上比較脆弱。
         _automation = new();
     }
+
+    // 輸入框每改一個字只改記憶體；整份檔（含全部路線）等沒有任何控制項在編輯時才寫一次。
+    // 用「沒有控制項在編輯」而不是逐個 IsItemDeactivatedAfterEdit：群組名稱框在右鍵選單裡，選單關掉時那一幀不會再畫到它。
+    private bool _editPending;
+
+    private void MarkEdited() => _editPending = true;
+
+    private void FlushEdit() {
+        if (!_editPending)
+            return;
+        _editPending = false;
+        RouteDB.NotifyModified();
+    }
+
+    public override void Update() {
+        base.Update();
+        if (_editPending && !ImGui.IsAnyItemActive())
+            FlushEdit();
+    }
+
+    public override void OnClose() {
+        base.OnClose();
+        FlushEdit();
+    }
+
+    public void Dispose() => FlushEdit();
 
     public override void Draw() {
         using var tabs = ImRaii.TabBar("Tabs");
@@ -344,7 +370,7 @@ public class GatherWindow : Window {
             ImGui.SameLine();
             if (ImGui.InputText("##name", ref name, 256)) {
                 route.Name = name;
-                RouteDB.NotifyModified();
+                MarkEdited();
             }
             ImGui.SameLine();
             if (ImGuiComponents.IconButton(FontAwesomeIcon.Plus)) {
@@ -371,7 +397,7 @@ public class GatherWindow : Window {
             ImGui.SameLine();
             if (ImGui.InputText("##group", ref group, 256)) {
                 route.Group = group;
-                RouteDB.NotifyModified();
+                MarkEdited();
             }
 
             if (RouteDB.AutoGather) {
@@ -461,13 +487,13 @@ public class GatherWindow : Window {
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Set Position to Current".Loc());
         ImGui.SameLine();
         if (ImGui.InputFloat3("Position".Loc(), ref wp.Position))
-            RouteDB.NotifyModified();
+            MarkEdited();
 
         if (ImGui.InputUInt("Zone ID".Loc(), ref wp.ZoneID))
-            RouteDB.NotifyModified();
+            MarkEdited();
 
         if (ImGui.InputFloat("Radius (yalms)".Loc(), ref wp.Radius))
-            RouteDB.NotifyModified();
+            MarkEdited();
 
         if (UICombo.Enum("Movement mode".Loc(), ref wp.Movement))
             RouteDB.NotifyModified();
@@ -533,7 +559,7 @@ public class GatherWindow : Window {
 
         if (wp.showWaits) {
             if (ImGui.InputFloat2("Eorzean Time Wait".Loc(), ref wp.WaitTimeET))
-                RouteDB.NotifyModified();
+                MarkEdited();
             ImGui.SliderInt("Wait (ms)".Loc(), ref wp.WaitTimeMs, 0, 60000);
             if (ImGui.IsItemDeactivatedAfterEdit())
                 RouteDB.NotifyModified();
@@ -548,7 +574,7 @@ public class GatherWindow : Window {
         ImGui.SameLine();
         if (ImGui.InputText("##groupname", ref group, 256)) {
             RouteDB.Routes.Where(r => r.Group == old).ToList().ForEach(r => r.Group = group);
-            RouteDB.NotifyModified();
+            MarkEdited();
         }
     }
 
