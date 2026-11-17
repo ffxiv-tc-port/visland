@@ -96,7 +96,7 @@ public sealed unsafe class IslandTour : IDisposable {
 
     public static string StopName(StopKind kind) => kind switch {
         StopKind.Workshop => "開拓工坊",
-        StopKind.Granary => "屯貨倉庫",
+        StopKind.Granary => "囤貨倉庫",
         StopKind.Export => "產品交易",
         StopKind.Pasture => "牧場",
         StopKind.Farm => "耕地",
