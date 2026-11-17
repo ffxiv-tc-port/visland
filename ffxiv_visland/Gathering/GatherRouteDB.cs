@@ -112,8 +112,19 @@ public class GatherRouteDB : Configuration.Node {
     /// </remarks>
     public bool TataruPraiseOnErrorStop = true;
 
+    private readonly List<string> _truncatedRoutes = [];
+
+    internal override string? TakeLoadProblem() {
+        if (_truncatedRoutes.Count == 0)
+            return null;
+        var msg = $"{_truncatedRoutes.Count} 條路線的航點讀到一半失敗、只保留壞點之前的航點：{string.Join("、", _truncatedRoutes)}";
+        _truncatedRoutes.Clear();
+        return msg;
+    }
+
     public override void Deserialize(JObject j, JsonSerializer ser) {
         Routes.Clear();
+        _truncatedRoutes.Clear();
         if (j["Routes"] is JArray ja) {
             foreach (var jr in ja) {
                 var jn = jr["Name"]?.Value<string>();
@@ -125,8 +136,10 @@ public class GatherRouteDB : Configuration.Node {
                     Group = jr["Group"]?.Value<string>() ?? "",
                     Food = jr["Food"]?.Value<int>() ?? 0,
                     TargetGatherItem = jr["TargetGatherItem"]?.Value<int>() ?? 0,
-                    Waypoints = LoadFromJSONWaypoints(jw),
+                    Waypoints = LoadFromJSONWaypoints(jw, out var truncated),
                 });
+                if (truncated)
+                    _truncatedRoutes.Add(jn);
             }
         }
         DisableOnErrors = (bool?)j["DisableOnErrors"] ?? false;
@@ -216,8 +229,11 @@ public class GatherRouteDB : Configuration.Node {
         return jw;
     }
 
-    public static List<Waypoint> LoadFromJSONWaypoints(JArray j) {
+    public static List<Waypoint> LoadFromJSONWaypoints(JArray j) => LoadFromJSONWaypoints(j, out _);
+
+    public static List<Waypoint> LoadFromJSONWaypoints(JArray j, out bool truncated) {
         List<Waypoint> res = [];
+        truncated = false;
         try {
             foreach (var jwe in j) {
                 if (jwe is not JObject o)
@@ -261,6 +277,7 @@ public class GatherRouteDB : Configuration.Node {
             }
         }
         catch (Exception) {
+            truncated = true;
             Service.Log.Error("Failed to load waypoints from JSON.");
         }
         return res;

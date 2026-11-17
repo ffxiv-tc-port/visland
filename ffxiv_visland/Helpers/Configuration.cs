@@ -39,6 +39,9 @@ public class Configuration : IDisposable {
         public virtual JObject Serialize(JsonSerializer ser) {
             return JObject.FromObject(this, ser);
         }
+
+        // 讀檔沒擲例外、但有資料被丟掉時回一句說明（呼叫一次就清掉）；用方法不用屬性，免得被預設 Serialize 寫進檔。
+        internal virtual string? TakeLoadProblem() => null;
     }
 
     private const int _version = 3;
@@ -85,25 +88,74 @@ public class Configuration : IDisposable {
     public T Get<T>() where T : Node => (T)_nodes[typeof(T)];
     public T Get<T>(Type derived) where T : Node => (T)_nodes[derived];
 
+    // 契約：讀檔永不擲例外；每個節點各自 try，一個節點壞只影響它自己。
+    // 有任何資料可能沒讀進來（整份讀不懂、節點中斷、版本遷移、路線截斷）就先把原檔複製成 <檔名>.bad-<時間>，
+    // 因為下一次存檔會用記憶體裡的值整份蓋掉它。
     public void LoadFromFile(FileInfo file) {
+        List<string> problems = [];
         try {
             var contents = File.ReadAllText(file.FullName);
             var json = JObject.Parse(contents);
             var version = (int?)json["Version"] ?? 0;
             if (json["Payload"] is JObject payload) {
+                if (version < _version) {
+                    Service.Log.Information($"[Config] 設定檔是第 {version} 版{(json["Version"] == null ? "（沒有 Version 欄位）" : "")}，遷移到第 {_version} 版");
+                    problems.Add($"從第 {version} 版遷移");
+                }
                 payload = ConvertConfig(payload, version);
                 var ser = BuildSerializer();
                 foreach ((var t, var j) in payload) {
                     var type = Type.GetType(t);
                     var node = type != null ? _nodes.GetValueOrDefault(type) : null;
-                    if (node != null && j is JObject jObj) {
+                    if (node == null || j is not JObject jObj) {
+                        // 鍵＝節點型別 FullName：改過類名／namespace 的節點會落在這裡，下次存檔這個鍵就被丟掉。
+                        Service.Log.Warning($"[Config] Payload 的「{t}」{(node == null ? "找不到對應的設定節點" : "不是物件")}，略過");
+                        problems.Add($"略過 {t}");
+                        continue;
+                    }
+                    try {
                         node.Deserialize(jObj, ser);
+                        if (node.TakeLoadProblem() is { } lossy) {
+                            Service.Log.Warning($"[Config] {t}：{lossy}");
+                            problems.Add($"{type!.Name} {lossy}");
+                        }
+                    }
+                    catch (Exception e) {
+                        Service.Log.Error($"[Config] {t} 讀到一半失敗，這個節點後面的欄位用預設值，其他節點照常讀：{e}");
+                        problems.Add($"{type!.Name} 讀到一半失敗");
                     }
                 }
+            }
+            else {
+                Service.Log.Warning("[Config] 設定檔沒有 Payload，全部設定用預設值");
+                problems.Add("沒有 Payload");
             }
         }
         catch (Exception e) {
             Service.Log.Error($"[Config] Failed to load config from {file.FullName}: {e}");
+            problems.Add("整份讀不懂");
+        }
+        if (problems.Count > 0)
+            BackupOriginal(file, problems);
+    }
+
+    private static void BackupOriginal(FileInfo file, List<string> problems) {
+        try {
+            var original = File.ReadAllBytes(file.FullName);
+            var dir = file.Directory!;
+            // 同一份壞檔每次載入都會走到這裡（使用者沒改設定就不會被覆寫），內容相同的備份只留一份。
+            foreach (var old in dir.EnumerateFiles($"{file.Name}.bad-*")) {
+                if (old.Length == original.Length && File.ReadAllBytes(old.FullName).AsSpan().SequenceEqual(original)) {
+                    Service.Log.Information($"[Config] 設定檔讀取有問題（{string.Join("；", problems)}），相同內容已備份過：{old.Name}");
+                    return;
+                }
+            }
+            var backup = Path.Combine(dir.FullName, $"{file.Name}.bad-{DateTime.Now:yyyyMMdd-HHmmss-fff}");
+            File.WriteAllBytes(backup, original);
+            Service.Log.Information($"[Config] 設定檔讀取有問題（{string.Join("；", problems)}），原檔已備份成 {Path.GetFileName(backup)}；下次存檔會用目前的設定覆寫 {file.Name}");
+        }
+        catch (Exception e) {
+            Service.Log.Error($"[Config] 備份原設定檔失敗：{e}");
         }
     }
 
@@ -139,6 +191,9 @@ public class Configuration : IDisposable {
         // v2: backported vbm config framework
         if (version < 2) {
             var routes = payload["RouteDB"];
+            var dropped = payload.Properties().Count(p => p.Name != "RouteDB");
+            if (dropped > 0 || routes == null)
+                Service.Log.Warning($"[Config] 第 1 版遷移只認舊的 RouteDB 鍵（{(routes == null ? "這份檔沒有" : "有")}）；其他 {dropped} 個節點被丟掉，那些設定與路線回預設值");
             payload = new() { { "visland.Gathering.GatherRouteDB", new JObject() { { "Routes", routes } } } };
         }
         // v3: turned waypoints into an array of jobjects
@@ -149,6 +204,9 @@ public class Configuration : IDisposable {
                     foreach (var route in routes) {
                         if (route is JObject routeObj && routeObj["Waypoints"] is JArray waypoints) {
                             var newWaypoints = new JArray();
+                            var droppedWaypoints = waypoints.Count(w => w is not JArray);
+                            if (droppedWaypoints > 0)
+                                Service.Log.Warning($"[Config] 第 3 版遷移：路線「{routeObj["Name"]}」有 {droppedWaypoints} 個航點不是舊的陣列格式，被丟掉");
                             foreach (var waypoint in waypoints) {
                                 if (waypoint is JArray oldWaypoint) {
                                     var newWaypoint = new JObject

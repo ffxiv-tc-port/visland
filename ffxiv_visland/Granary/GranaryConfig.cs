@@ -18,8 +18,8 @@ public class GranaryConfig : Configuration.Node {
         BestSame,
 
         // ⚠️ 新值一律接在最後,既有的值與預設值不要動。
-        // 🔴 列舉名保持 CoverShortages 不變 —— 設定檔存的是字串,改名會讓使用者已經選好的設定
-        //    在下次載入時靜默退回 Manual。顯示文字與評分基準是「絕對庫存最低優先」
+        // 🔴 列舉名保持 CoverShortages 不變 —— 設定檔存的是字串,名字對不上＝這個節點讀檔中斷
+        //    (Reassign 與檔中排在它後面的欄位回預設),下次存檔寫回。顯示文字與評分基準是「絕對庫存最低優先」
         //    (只看工坊缺口的話,沒被排程吃到的材料再少也不算「缺」)。
         [Description("Max out and select expeditions that top up your lowest stocks after workshop demand")]
         CoverShortages,
