@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 
 namespace visland.Helpers;
 
@@ -159,7 +160,9 @@ public class Configuration : IDisposable {
         }
     }
 
+    // 契約：先寫暫存檔、讀回逐位元比對，才換掉正式檔；寫到一半被中斷時正式檔仍是上一份完整內容。
     public void SaveToFile(FileInfo file) {
+        var tmp = file.FullName + ".tmp";
         try {
             var ser = BuildSerializer();
             JObject payload = [];
@@ -174,10 +177,18 @@ public class Configuration : IDisposable {
                 { "Version", _version },
                 { "Payload", payload }
             };
-            File.WriteAllText(file.FullName, jContents.ToString());
+            var bytes = new UTF8Encoding(false).GetBytes(jContents.ToString());
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None)) {
+                fs.Write(bytes);
+                fs.Flush(true);
+            }
+            if (!File.ReadAllBytes(tmp).AsSpan().SequenceEqual(bytes))
+                throw new IOException($"{Path.GetFileName(tmp)} 讀回的內容與寫入的不一致");
+            File.Move(tmp, file.FullName, true);
         }
         catch (Exception e) {
             Service.Log.Error($"[Config] Failed to save config to {file.FullName}: {e}");
+            try { File.Delete(tmp); } catch { }
         }
     }
 
