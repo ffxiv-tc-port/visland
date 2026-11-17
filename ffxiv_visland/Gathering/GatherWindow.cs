@@ -36,6 +36,9 @@ public class GatherWindow : Window, IDisposable {
 
     private string searchString = string.Empty;
     private readonly List<Route> _filteredRoutes = [];
+    private bool _searchChanged;
+    private readonly HashSet<string> _openGroups = [];
+    private HashSet<string> _preSearchOpenGroups = [];
     // 清單與編輯器唯一的路線來源。搜尋字串一非空就以過濾結果為準，
     // 所以「搜尋不到任何路線」顯示的是空清單，不是整份路線表。
     private List<Route> VisibleRoutes => searchString.Length > 0 ? _filteredRoutes : RouteDB.Routes;
@@ -169,20 +172,45 @@ public class GatherWindow : Window, IDisposable {
             ImGui.TextV("Search:".Loc() + " ");
             ImGui.SameLine();
             ImGui.SetNextItemWidth(-1);
-            if (ImGui.InputText("###RouteSearch", ref searchString, 500))
+            var wasSearching = searchString.Length > 0;
+            if (ImGui.InputText("###RouteSearch", ref searchString, 500)) {
+                if (!wasSearching) // 清掉搜尋字串時還原成搜尋前的展開狀態
+                    _preSearchOpenGroups = [.. _openGroups];
+                _searchChanged = true;
                 RefreshFilteredRoutes();
+            }
 
             ImGui.Separator();
 
             using (ImRaii.Child("routes")) {
+                var searching = searchString.Length > 0;
+                var matchCounts = searching ? VisibleRoutes.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => g.Count()) : null;
+                if (!searching)
+                    _openGroups.Clear();
+
                 var groups = GetGroups(RouteDB, true);
                 foreach (var group in groups) {
-                    foreach (var _ in _tree.Node($"{(group == "None" ? "None".Loc() : group)}###{groups.IndexOf(group)}", contextMenu: () => ContextMenuGroup(group))) {
+                    var matches = matchCounts?.GetValueOrDefault(group) ?? 0;
+                    if (_searchChanged) // 有命中的群組展開；清掉搜尋時還原
+                        ImGui.SetNextItemOpen(searching ? matches > 0 : _preSearchOpenGroups.Contains(group), ImGuiCond.Always);
+                    var groupName = group == "None" ? "None".Loc() : group;
+                    var groupLabel = searching ? $"{groupName} ({matches})" : groupName;
+                    var groupColor = searching && matches == 0 ? ImGui.GetColorU32(ImGuiCol.TextDisabled) : 0xffffffff;
+                    foreach (var _ in _tree.Node($"{groupLabel}###{groups.IndexOf(group)}", color: groupColor, contextMenu: () => ContextMenuGroup(group))) {
+                        if (!searching)
+                            _openGroups.Add(group);
                         for (var i = 0; i < VisibleRoutes.Count; i++) {
                             var route = VisibleRoutes[i];
                             var routeGroup = string.IsNullOrEmpty(route.Group) ? "None" : route.Group;
                             if (routeGroup == group) {
-                                if (ImGui.Selectable($"{route.Name} ({"?? steps".Loc(route.Waypoints.Count)})###{i}", i == selectedRouteIndex))
+                                var routeLabel = $"{route.Name} ({"?? steps".Loc(route.Waypoints.Count)})";
+                                if (searching) { // 自己畫標籤，才能把命中的字上色
+                                    var textPos = ImGui.GetCursorScreenPos();
+                                    if (ImGui.Selectable($"###{i}", i == selectedRouteIndex, ImGuiSelectableFlags.None, new Vector2(0, ImGui.GetTextLineHeight())))
+                                        selectedRouteIndex = i;
+                                    DrawHighlightedLabel(textPos, routeLabel, route.Name.Length);
+                                }
+                                else if (ImGui.Selectable($"{routeLabel}###{i}", i == selectedRouteIndex))
                                     selectedRouteIndex = i;
                                 //if (ImRaii.ContextPopup($"{route.Name}{i}"))
                                 //{
@@ -193,8 +221,35 @@ public class GatherWindow : Window, IDisposable {
                         }
                     }
                 }
+                _searchChanged = false;
             }
         }
+    }
+
+    // 只比對前 searchableLength 個字（路線名），「(n 步)」後綴不會被標色。
+    private void DrawHighlightedLabel(Vector2 pos, string label, int searchableLength) {
+        var drawList = ImGui.GetWindowDrawList();
+        var textColor = ImGui.GetColorU32(ImGuiCol.Text);
+        var matchColor = ImGui.GetColorU32(ImGuiColors.ParsedGold);
+        var underlineY = pos.Y + ImGui.GetTextLineHeight();
+
+        void Segment(string text, bool match) {
+            if (text.Length == 0) return;
+            var width = ImGui.CalcTextSize(text).X;
+            drawList.AddText(pos, match ? matchColor : textColor, text);
+            if (match)
+                drawList.AddLine(new Vector2(pos.X, underlineY), new Vector2(pos.X + width, underlineY), matchColor);
+            pos.X += width;
+        }
+
+        var cursor = 0;
+        var searchable = label[..searchableLength];
+        for (var idx = searchable.IndexOf(searchString, StringComparison.OrdinalIgnoreCase); idx >= 0; idx = searchable.IndexOf(searchString, cursor, StringComparison.OrdinalIgnoreCase)) {
+            Segment(label[cursor..idx], false);
+            Segment(label.Substring(idx, searchString.Length), true);
+            cursor = idx + searchString.Length;
+        }
+        Segment(label[cursor..], false);
     }
 
     private void RefreshFilteredRoutes() {
