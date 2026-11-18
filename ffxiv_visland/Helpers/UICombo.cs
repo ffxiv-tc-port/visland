@@ -11,11 +11,20 @@ using System.Reflection;
 namespace visland.Helpers;
 
 public static class UICombo {
+    // 只在繪圖（框架）執行緒用 ⇒ 不加鎖。存的是未翻譯名，.Loc() 每次照查，語言重載不必作廢快取。
+    private static readonly Dictionary<Enum, string> _enumLabels = [];
+    // 每個列舉型別的值陣列只建一次；共用、不可改。
+    private static readonly Dictionary<Type, Array> _enumValues = [];
+
     // 過 .Loc():這是全 visland 所有列舉下拉的顯示字串來源。
     // 沒補譯的列舉 .Loc() 會原樣回傳。
     public static string EnumString(Enum v) {
-        var name = v.ToString();
-        return (v.GetType().GetField(name)?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? name).Loc();
+        if (!_enumLabels.TryGetValue(v, out var label)) {
+            var name = v.ToString();
+            label = v.GetType().GetField(name)?.GetCustomAttribute<DescriptionAttribute>()?.Description ?? name;
+            _enumLabels[v] = label;
+        }
+        return label.Loc();
     }
 
     public static bool Enum<T>(string label, ref T v) where T : Enum {
@@ -23,7 +32,10 @@ public static class UICombo {
         ImGui.SetNextItemWidth(200);
         using var combo = ImRaii.Combo(label, EnumString(v));
         if (!combo) return false;
-        foreach (var opt in System.Enum.GetValues(v.GetType())) {
+        var type = v.GetType();
+        if (!_enumValues.TryGetValue(type, out var values))
+            _enumValues[type] = values = System.Enum.GetValues(type);
+        foreach (var opt in values) {
             if (ImGui.Selectable(EnumString((Enum)opt), opt.Equals(v))) {
                 v = (T)opt;
                 res = true;
