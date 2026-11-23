@@ -80,7 +80,7 @@ public sealed class MaterialLedgerTab {
     private void DrawControls() {
         ImGui.TextV("Demand range:".Loc() + " ");
         ImGui.SameLine();
-        ImGui.SetNextItemWidth(180 * Dalamud.Interface.Utility.ImGuiHelpers.GlobalScale);
+        ImGui.SetNextItemWidth(UiScale.Px(180));
         string[] horizons = ["Current cycle".Loc(), "This week".Loc(), "This + next week".Loc()];
         UICombo.Int("##horizon", horizons, ref _horizon);
         ImGuiComponents.HelpMarker("Which of the three material allocation buckets the game keeps is used for the Need column. The labels come from client struct comments and have not been verified in game yet - the tooltip always shows all three.".Loc());
@@ -129,10 +129,10 @@ public sealed class MaterialLedgerTab {
 
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("Material".Loc(), ImGuiTableColumnFlags.WidthStretch);
-        ImGui.TableSetupColumn("Gap".Loc(), ImGuiTableColumnFlags.WidthFixed, 60);
-        ImGui.TableSetupColumn("Have / Need".Loc(), ImGuiTableColumnFlags.WidthFixed, 110);
-        ImGui.TableSetupColumn("Source".Loc(), ImGuiTableColumnFlags.WidthFixed, 150);
-        ImGui.TableSetupColumn("Route".Loc(), ImGuiTableColumnFlags.WidthFixed, 190);
+        ImGui.TableSetupColumn("Gap".Loc(), ImGuiTableColumnFlags.WidthFixed, UiScale.Px(60));
+        ImGui.TableSetupColumn("Have / Need".Loc(), ImGuiTableColumnFlags.WidthFixed, UiScale.Px(110));
+        ImGui.TableSetupColumn("Source".Loc(), ImGuiTableColumnFlags.WidthFixed, UiScale.Px(150));
+        ImGui.TableSetupColumn("Route".Loc(), ImGuiTableColumnFlags.WidthFixed, UiScale.Px(190));
         ImGui.TableHeadersRow();
 
         foreach (var row in _visible)

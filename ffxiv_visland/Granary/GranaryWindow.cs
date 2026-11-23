@@ -95,9 +95,9 @@ unsafe class GranaryWindow : UIAttachedWindow {
         using var table = ImRaii.Table("table", 4);
         if (table) {
             ImGui.TableSetupColumn("Expedition".Loc());
-            ImGui.TableSetupColumn("Tops up low stock".Loc(), ImGuiTableColumnFlags.WidthFixed, 120);
-            ImGui.TableSetupColumn("Granary 1".Loc(), ImGuiTableColumnFlags.WidthFixed, 100);
-            ImGui.TableSetupColumn("Granary 2".Loc(), ImGuiTableColumnFlags.WidthFixed, 100);
+            ImGui.TableSetupColumn("Tops up low stock".Loc(), ImGuiTableColumnFlags.WidthFixed, UiScale.Px(120));
+            ImGui.TableSetupColumn("Granary 1".Loc(), ImGuiTableColumnFlags.WidthFixed, UiScale.Px(100));
+            ImGui.TableSetupColumn("Granary 2".Loc(), ImGuiTableColumnFlags.WidthFixed, UiScale.Px(100));
             ImGui.TableHeadersRow();
 
             ImGui.TableNextRow();

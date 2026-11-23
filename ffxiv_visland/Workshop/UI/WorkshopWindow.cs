@@ -96,7 +96,7 @@ unsafe class WorkshopWindow : UIAttachedWindow {
 
         using (ImRaii.Disabled(!_config.FillEmptyDays)) {
             var surplus = _config.SurplusPreferencePercent;
-            ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
+            ImGui.SetNextItemWidth(UiScale.Px(160));
             if (ImGui.SliderInt("Prefer surplus materials".Loc(), ref surplus, 0, 50, "%d%%")) {
                 _config.SurplusPreferencePercent = Math.Clamp(surplus, 0, 50);
                 _config.NotifyModified();
@@ -114,7 +114,7 @@ unsafe class WorkshopWindow : UIAttachedWindow {
         ImGui.Separator();
         ImGui.TextUnformatted("Season alignment".Loc());
         var offset = _config.SeasonOffset;
-        ImGui.SetNextItemWidth(120 * ImGuiHelpers.GlobalScale);
+        ImGui.SetNextItemWidth(UiScale.Px(120));
         if (ImGui.InputInt("Season offset (weeks)".Loc(), ref offset)) {
             _config.SeasonOffset = offset;
             _config.NotifyModified();

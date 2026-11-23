@@ -111,7 +111,7 @@ public unsafe class FarmWindow : UIAttachedWindow {
         using var table = ImRaii.Table("table", 3);
         if (table) {
             ImGui.TableSetupColumn("Slot".Loc());
-            ImGui.TableSetupColumn("Need".Loc(), ImGuiTableColumnFlags.WidthFixed, 60);
+            ImGui.TableSetupColumn("Need".Loc(), ImGuiTableColumnFlags.WidthFixed, UiScale.Px(60));
             ImGui.TableSetupColumn("Operations".Loc());
             ImGui.TableHeadersRow();
 

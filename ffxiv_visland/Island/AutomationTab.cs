@@ -53,7 +53,7 @@ public sealed class AutomationTab {
         Utils.DrawSection("Exports".Loc(), ImGuiColors.ParsedGold);
         if (ImGui.Checkbox("Auto Export".Loc(), ref _export.AutoSell))
             _export.NotifyModified();
-        ImGui.PushItemWidth(150);
+        ImGui.PushItemWidth(UiScale.Px(150));
         ImGui.SliderInt("Sell normal above".Loc(), ref _export.NormalLimit, 0, 999);
         if (ImGui.IsItemDeactivatedAfterEdit())
             _export.NotifyModified();
