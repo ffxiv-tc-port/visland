@@ -140,6 +140,11 @@ public class GatherWindow : Window, IDisposable {
                 ImGui.SameLine();
                 ImGui.Text("waiting ??ms".Loc(Exec.WaitUntil - Environment.TickCount64));
             }
+
+            if (Exec.DutyResumePending) {
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.DalamudYellow, "(paused for duty, resumes on return)".Loc());
+            }
         }
 
         ImGui.SameLine();
@@ -320,6 +325,14 @@ public class GatherWindow : Window, IDisposable {
             if (ImGui.Checkbox("Have Tataru speak when a route is stopped by errors".Loc(), ref RouteDB.TataruPraiseOnErrorStop))
                 RouteDB.NotifyModified();
             ImGuiComponents.HelpMarker("Requires the TataruPraise plugin, and only happens while \"Stop Route on Error\" is on. Uses its \"need help\" line rather than the \"route finished\" one.".Loc());
+
+            if (ImGui.Checkbox("Pause route when a duty pops".Loc(), ref RouteDB.PauseRouteForDuty))
+                RouteDB.NotifyModified();
+            ImGuiComponents.HelpMarker("Pauses a running gathering route when the duty ready window appears or you enter a duty, and remembers the step. The duty ready window is never clicked. Routes started inside a duty are not paused. Does not apply to the island tour.".Loc());
+
+            if (ImGui.Checkbox("Resume route after returning from the duty".Loc(), ref RouteDB.ResumeRouteAfterDuty))
+                RouteDB.NotifyModified();
+            ImGuiComponents.HelpMarker("Resumes a route paused for a duty from the step it stopped at, once you are back on the same map, out of the duty, done loading and free to act for ??s. Also resumes if the duty ready window is cancelled. Does not resume if you stop the route, start another route or unpause it yourself, if you stay on a different map for ??s, or after ?? minutes.".Loc(Helpers.RouteDutyPause.ResumeSettleMs / 1000, Helpers.RouteDutyPause.OtherMapGraceMs / 1000, Helpers.RouteDutyPause.MaxPauseMs / 60_000));
 
             Utils.WorkInProgressIcon();
             ImGui.SameLine();

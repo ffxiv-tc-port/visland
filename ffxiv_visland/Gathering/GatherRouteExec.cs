@@ -58,6 +58,7 @@ public class GatherRouteExec : IDisposable {
         WaitingForAutoRetainer,
         AdjustingPosition,
         YieldingToManualMove,
+        PausedForDuty,
     }
 
     private readonly OverrideCamera _camera = new();
@@ -106,6 +107,13 @@ public class GatherRouteExec : IDisposable {
     private long _fallbackLogAt;
     private const long FallbackLogIntervalMs = 60_000;
 
+    private readonly RouteDutyPause _duty = new();
+    // 因副本暫停時關掉的鏡頭／移動覆寫；路線之後不論由誰解除暫停，第一個沒暫停的幀就開回來。
+    private bool _overridesSuspended;
+
+    /// <summary>路線因副本暫停、出本回到原地圖後會自動接續。</summary>
+    public bool DutyResumePending => _duty.Pending;
+
     public GatherRouteExec() {
         RouteDB = Service.Config.Get<GatherRouteDB>();
         // These subscriptions drive "stop route on error": without them both CheckToDisable overloads are
@@ -131,6 +139,8 @@ public class GatherRouteExec : IDisposable {
             Service.Log.Information($"[visland] 路線「{route.Name}」沒有第 {waypoint + 1} 個航點（共 {count} 個），不開始");
             return;
         }
+        CancelDutyResume("改跑別的路線");
+        _overridesSuspended = false;
         CurrentState = State.None;
         CurrentRoute = route;
         route.Waypoints.RemoveAll(x => x.IsPhantom);
@@ -153,6 +163,10 @@ public class GatherRouteExec : IDisposable {
     public void Finish() {
         SetState(State.None);
         if (CurrentRoute == null) return;
+
+        // 所有停止路徑（介面、指令、IPC、急停、錯誤停止、卸載）都經過這裡。
+        CancelDutyResume("路線已停止");
+        _overridesSuspended = false;
 
         // 已排入的傳送、換職業、修理、精製、精選都屬於這條路線：停下就一起丟掉（只排在路線期間，見各 Enqueue 呼叫端）。
         Service.TaskManager.Clear();
@@ -181,6 +195,13 @@ public class GatherRouteExec : IDisposable {
         // 尋路段不推：vnavmesh 的路徑自己會走，visland 再寫一份前進會被它當成玩家輸入而取消路徑。
         var walkToWaypoint = CurrentState == State.Mounting && mountWhileMoving?.Movement == GatherRouteDB.Movement.MountNoFly && RouteLegPlan.InjectMountWalk(_leg.LastMode);
         _movement.DesiredPosition = walkToWaypoint ? mountWhileMoving!.Position : Player.Object?.Position ?? new();
+
+        ObserveDuty();
+        if (_overridesSuspended && CurrentRoute != null && !Paused) {
+            _overridesSuspended = false;
+            _camera.Enabled = true;
+            _movement.Enabled = true;
+        }
 
         // 暫停只停自己交出去的路徑（例：為 AutoRetainer 暫停時，別的插件正用 vnavmesh 走去傳喚鈴）。
         if (Paused)
@@ -454,6 +475,75 @@ public class GatherRouteExec : IDisposable {
             }
         }
     }
+
+    // 只讀 Condition 旗標：副本確認框只看在不在，絕不去按（那是使用者或別的插件的事）。
+    private void ObserveDuty() {
+        var c = Service.Condition;
+        var frame = new RouteDutyPause.Frame {
+            RouteRunning = CurrentRoute != null,
+            Paused = Paused,
+            PopShown = c[ConditionFlag.WaitingForDutyFinder] || c[ConditionFlag.WaitingForDuty],
+            InDuty = c[ConditionFlag.BoundByDuty],
+            BetweenAreas = c[ConditionFlag.BetweenAreas] || c[ConditionFlag.BetweenAreas51],
+            PlayerReady = _duty.Pending && Player.Available && !AddonUtils.IsOccupied(),
+            Territory = Player.Territory,
+            Now = Environment.TickCount64,
+        };
+        switch (_duty.Observe(frame, RouteDB.PauseRouteForDuty, RouteDB.ResumeRouteAfterDuty)) {
+            case RouteDutyPause.Decision.Pause:
+                PauseForDuty();
+                break;
+            case RouteDutyPause.Decision.Resume:
+                ResumeAfterDuty();
+                break;
+            case RouteDutyPause.Decision.Cancel:
+                Service.Log.Information($"[副本暫停] 不接續路線「{CurrentRoute?.Name}」：{_duty.Reason}（暫停時地圖 {TerritoryLabel(_duty.Territory)}，目前地圖 {TerritoryLabel(Player.Territory)}）");
+                break;
+        }
+    }
+
+    private void PauseForDuty() {
+        Paused = true;
+        SetState(State.PausedForDuty);
+        // 已排入的傳送、修理等屬於路線的工作不帶進副本；接續時 Update 會依當下狀態重排。
+        Service.TaskManager.Clear();
+        ResetLeg(null);
+        StopOwnNavPath();
+        _manualMove.Reset();
+        _manualMoveWaypoint = null;
+        _stuck.Reset();
+        _stuckWaypoint = null;
+        _camera.Enabled = false;
+        _movement.Enabled = false;
+        _overridesSuspended = true;
+        CompatModule.RestoreChanges();
+        Service.Log.Information($"[副本暫停] 路線「{CurrentRoute!.Name}」暫停：{_duty.Reason}；地圖 {TerritoryLabel(_duty.Territory)}，停在第 {CurrentWaypoint + 1} 步（航點 #{CurrentWaypoint}）");
+    }
+
+    private void ResumeAfterDuty() {
+        if (CurrentRoute == null || CurrentWaypoint >= CurrentRoute.Waypoints.Count) {
+            Service.Log.Information($"[副本暫停] 不接續：路線已不在（航點 #{CurrentWaypoint}）");
+            return;
+        }
+        _repairAttempts = 0;
+        _interruptLoop.Reset();
+        _manualMove.Reset();
+        _manualMoveWaypoint = null;
+        _stuck.Reset();
+        _stuckWaypoint = null;
+        ResetLeg(null);
+        Paused = false;
+        SetState(State.None);
+        Service.Log.Information($"[副本暫停] 出本回到原地圖，路線「{CurrentRoute.Name}」從第 {CurrentWaypoint + 1} 步（航點 #{CurrentWaypoint}）接續；地圖 {TerritoryLabel(Player.Territory)}");
+    }
+
+    private void CancelDutyResume(string reason) {
+        if (_duty.Clear(reason))
+            Service.Log.Information($"[副本暫停] 不接續路線「{CurrentRoute?.Name}」：{reason}");
+    }
+
+    private static string TerritoryLabel(uint id)
+        => $"{id}（{TerritoryType.GetRow(id)?.PlaceName.ValueNullable?.Name.ExtractText() ?? "?"}）";
 
     private void ResetLeg(GatherRouteDB.Waypoint? wp) {
         CancelLegQuery();

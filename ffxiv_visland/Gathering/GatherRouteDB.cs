@@ -112,6 +112,12 @@ public class GatherRouteDB : Configuration.Node {
     /// </remarks>
     public bool TataruPraiseOnErrorStop = true;
 
+    /// <summary>採集路線跑到一半副本排到（確認框出現）或進了副本，就暫停並記下航點。確認框只看不按。</summary>
+    public bool PauseRouteForDuty = true;
+
+    /// <summary>因副本暫停的路線，出本回到同一張地圖、可操作後從暫停的航點接續；上限見 <see cref="Helpers.RouteDutyPause.MaxPauseMs"/>。</summary>
+    public bool ResumeRouteAfterDuty = true;
+
     private readonly List<string> _truncatedRoutes = [];
 
     internal override string? TakeLoadProblem() {
@@ -161,6 +167,8 @@ public class GatherRouteDB : Configuration.Node {
         // 缺鍵＝欄位初始值，既有使用者與新裝的人拿到同一個預設。
         PathfindAllWaypoints = (bool?)j["PathfindAllWaypoints"] ?? true;
         NoMountUnderDistance = (float?)j["NoMountUnderDistance"] ?? 20;
+        PauseRouteForDuty = (bool?)j["PauseRouteForDuty"] ?? true;
+        ResumeRouteAfterDuty = (bool?)j["ResumeRouteAfterDuty"] ?? true;
         // Intentionally ignore obsolete keys: Manual, GlobalManual, WasFlyingInManual,
         // LandDistance, PathFindCancellationTime, EmoteID, ActionID, ItemID, MobID, QuestID, ChatCommand, etc.
     }
@@ -194,6 +202,8 @@ public class GatherRouteDB : Configuration.Node {
             { "TataruPraiseOnErrorStop", TataruPraiseOnErrorStop },
             { "PathfindAllWaypoints", PathfindAllWaypoints },
             { "NoMountUnderDistance", NoMountUnderDistance },
+            { "PauseRouteForDuty", PauseRouteForDuty },
+            { "ResumeRouteAfterDuty", ResumeRouteAfterDuty },
         };
     }
 
