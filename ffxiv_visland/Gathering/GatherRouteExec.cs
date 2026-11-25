@@ -840,7 +840,7 @@ public class GatherRouteExec : IDisposable {
     private void SetState(State state) {
         if (state != CurrentState) {
             CurrentState = state;
-            Service.Log.Information($"State: {CurrentState}");
+            Service.Log.Debug($"State: {CurrentState}");
         }
     }
 
